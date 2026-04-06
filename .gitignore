@@ -1,0 +1,5 @@
+terraform-provider-thundercompute
+dist/
+.DS_Store
+*.swp
+*.swo

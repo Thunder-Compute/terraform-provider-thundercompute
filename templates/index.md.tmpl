@@ -1,0 +1,25 @@
+---
+page_title: "Thunder Compute Provider"
+description: |-
+  Terraform provider for managing Thunder Compute GPU cloud resources.
+---
+
+# Thunder Compute Provider
+
+The Thunder Compute provider manages GPU instances, SSH keys, and snapshots on the [Thunder Compute](https://thundercompute.com) platform.
+
+## Authentication
+
+Set the `TNR_API_TOKEN` environment variable or configure the `api_token` attribute directly:
+
+```shell
+export TNR_API_TOKEN="your-api-token"
+```
+
+Generate tokens at [console.thundercompute.com/settings/tokens](https://console.thundercompute.com/settings/tokens).
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Example Usage
+
+{{ tffile "examples/provider/provider.tf" }}
