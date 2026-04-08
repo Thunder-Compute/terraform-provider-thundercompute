@@ -18,7 +18,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/local/thundercompute",
+		Address: "registry.terraform.io/Thunder-Compute/thundercompute",
 		Debug:   debug,
 	}
 

@@ -37,15 +37,15 @@ type InstanceResource struct {
 
 type InstanceResourceModel struct {
 	// User-configurable
-	GPUType              types.String `tfsdk:"gpu_type"`
-	Template             types.String `tfsdk:"template"`
-	Mode                 types.String `tfsdk:"mode"`
-	CPUCores             types.Int64  `tfsdk:"cpu_cores"`
-	DiskSizeGB           types.Int64  `tfsdk:"disk_size_gb"`
-	NumGPUs              types.Int64  `tfsdk:"num_gpus"`
-	PublicKey             types.String `tfsdk:"public_key"`
-	HTTPPorts             types.Set    `tfsdk:"http_ports"`
-	AllowSnapshotModify  types.Bool   `tfsdk:"allow_snapshot_modify"`
+	GPUType             types.String `tfsdk:"gpu_type"`
+	Template            types.String `tfsdk:"template"`
+	Mode                types.String `tfsdk:"mode"`
+	CPUCores            types.Int64  `tfsdk:"cpu_cores"`
+	DiskSizeGB          types.Int64  `tfsdk:"disk_size_gb"`
+	NumGPUs             types.Int64  `tfsdk:"num_gpus"`
+	PublicKey           types.String `tfsdk:"public_key"`
+	HTTPPorts           types.Set    `tfsdk:"http_ports"`
+	AllowSnapshotModify types.Bool   `tfsdk:"allow_snapshot_modify"`
 
 	// Computed
 	ID            types.String   `tfsdk:"id"`
@@ -129,9 +129,9 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"allow_snapshot_modify": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
 				Description: "When true, permits the snapshot-based modify fallback if the modify API is temporarily unavailable. " +
 					"The fallback snapshots the instance, deletes it, and recreates from the snapshot with updated config. " +
 					"Note: the recreated instance receives a new generated SSH keypair in addition to keys preserved in the snapshot. " +
@@ -508,7 +508,7 @@ func (r *InstanceResource) updateViaSnapshot(ctx context.Context, plan, state *I
 	}
 
 	var snap *client.Snapshot
-	if existing != nil && strings.ToUpper(existing.Status) != "CREATING" && strings.ToUpper(existing.Status) != "SNAPSHOTTING" {
+	if existing != nil && strings.ToUpper(existing.Status) != "CREATING" {
 		// Reuse the ready orphaned snapshot from a prior failed attempt
 		snap = existing
 	} else {
@@ -635,7 +635,7 @@ func (r *InstanceResource) waitForRunning(ctx context.Context, uuid string) erro
 			switch {
 			case status == "RUNNING" && item.IP != "":
 				return nil
-			case status == "ERROR" || status == "FAILED" || status == "TERMINATED":
+			case status == "STOPPED" || status == "UNKNOWN":
 				return fmt.Errorf("instance %s entered terminal status: %s", uuid, item.Status)
 			}
 		}

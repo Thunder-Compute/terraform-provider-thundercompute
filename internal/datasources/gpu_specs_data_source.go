@@ -27,7 +27,7 @@ type GPUSpecModel struct {
 	Mode          types.String `tfsdk:"mode"`
 	RAMPerVCPUGiB types.Int64  `tfsdk:"ram_per_vcpu_gib"`
 	VRAMGB        types.Int64  `tfsdk:"vram_gb"`
-	MaxCPUPerGPU  types.Int64  `tfsdk:"max_cpu_per_gpu"`
+	VCPUOptions   types.List   `tfsdk:"vcpu_options"`
 	StorageMinGB  types.Int64  `tfsdk:"storage_min_gb"`
 	StorageMaxGB  types.Int64  `tfsdk:"storage_max_gb"`
 }
@@ -48,14 +48,14 @@ func (d *GPUSpecsDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"display_name":      schema.StringAttribute{Computed: true, Description: "Human-readable GPU name."},
-						"gpu_count":         schema.Int64Attribute{Computed: true, Description: "Number of GPUs in this configuration."},
-						"mode":              schema.StringAttribute{Computed: true, Description: "Instance mode (prototyping or production)."},
-						"ram_per_vcpu_gib":  schema.Int64Attribute{Computed: true, Description: "RAM per vCPU in GiB."},
-						"vram_gb":           schema.Int64Attribute{Computed: true, Description: "GPU VRAM in GB."},
-						"max_cpu_per_gpu":   schema.Int64Attribute{Computed: true, Description: "Maximum vCPUs per GPU."},
-						"storage_min_gb":    schema.Int64Attribute{Computed: true, Description: "Minimum disk size in GB."},
-						"storage_max_gb":    schema.Int64Attribute{Computed: true, Description: "Maximum disk size in GB."},
+						"display_name":     schema.StringAttribute{Computed: true, Description: "Human-readable GPU name."},
+						"gpu_count":        schema.Int64Attribute{Computed: true, Description: "Number of GPUs in this configuration."},
+						"mode":             schema.StringAttribute{Computed: true, Description: "Instance mode (prototyping or production)."},
+						"ram_per_vcpu_gib": schema.Int64Attribute{Computed: true, Description: "RAM per vCPU in GiB."},
+						"vram_gb":          schema.Int64Attribute{Computed: true, Description: "GPU VRAM in GB."},
+						"vcpu_options":     schema.ListAttribute{Computed: true, ElementType: types.Int64Type, Description: "Valid vCPU core options for this configuration."},
+						"storage_min_gb":   schema.Int64Attribute{Computed: true, Description: "Minimum disk size in GB."},
+						"storage_max_gb":   schema.Int64Attribute{Computed: true, Description: "Maximum disk size in GB."},
 					},
 				},
 			},
@@ -87,13 +87,20 @@ func (d *GPUSpecsDataSource) Read(ctx context.Context, _ datasource.ReadRequest,
 		Specs: make(map[string]GPUSpecModel, len(specs)),
 	}
 	for key, spec := range specs {
+		vcpuVals := make([]int64, len(spec.VCPUOptions))
+		for i, v := range spec.VCPUOptions {
+			vcpuVals[i] = int64(v)
+		}
+		vcpuList, d := types.ListValueFrom(ctx, types.Int64Type, vcpuVals)
+		resp.Diagnostics.Append(d...)
+
 		model.Specs[key] = GPUSpecModel{
 			DisplayName:   types.StringValue(spec.DisplayName),
 			GPUCount:      types.Int64Value(int64(spec.GPUCount)),
 			Mode:          types.StringValue(spec.Mode),
 			RAMPerVCPUGiB: types.Int64Value(int64(spec.RAMPerVCPUGiB)),
 			VRAMGB:        types.Int64Value(int64(spec.VRAMGB)),
-			MaxCPUPerGPU:  types.Int64Value(int64(spec.Limits.MaxCPUPerGPU)),
+			VCPUOptions:   vcpuList,
 			StorageMinGB:  types.Int64Value(int64(spec.StorageGB.Min)),
 			StorageMaxGB:  types.Int64Value(int64(spec.StorageGB.Max)),
 		}

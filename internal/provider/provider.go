@@ -110,6 +110,7 @@ func (p *ThunderComputeProvider) DataSources(_ context.Context) []func() datasou
 	return []func() datasource.DataSource{
 		datasources.NewInstancesDataSource,
 		datasources.NewGPUSpecsDataSource,
+		datasources.NewGPUAvailabilityDataSource,
 		datasources.NewPricingDataSource,
 		datasources.NewTemplatesDataSource,
 	}

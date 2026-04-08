@@ -36,9 +36,9 @@ func WaitForSnapshot(ctx context.Context, c *client.Client, name string) (*clien
 
 		if snap != nil {
 			switch strings.ToUpper(snap.Status) {
-			case "CREATING", "SNAPSHOTTING":
+			case "CREATING":
 				// still in progress
-			case "ERROR", "FAILED":
+			case "FAILED", "UNKNOWN":
 				return nil, fmt.Errorf("snapshot %q entered error status: %s", name, snap.Status)
 			default:
 				return snap, nil

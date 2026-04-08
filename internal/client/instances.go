@@ -25,27 +25,27 @@ type CreateInstanceResponse struct {
 }
 
 type InstanceListItem struct {
-	ID               string          `json:"id"`
-	UUID             string          `json:"uuid"`
-	Name             string          `json:"name"`
-	Status           string          `json:"status"`
-	CPUCores         string          `json:"cpuCores"`  // API returns string
-	NumGPUs          string          `json:"numGpus"`   // API returns string
-	Memory           string          `json:"memory"`
-	Storage          int             `json:"storage"`
-	GPUType          string          `json:"gpuType"`
-	Mode             string          `json:"mode"`
-	Template         string          `json:"template"`
-	IP               string          `json:"ip"`
-	Port             int             `json:"port"`
-	HTTPPorts        []int           `json:"httpPorts"`
-	SSHPublicKeys    []string        `json:"sshPublicKeys"`
-	CreatedAt        string          `json:"createdAt"`
-	ProvisioningTime string          `json:"provisioningTime"`
-	RestoringTime    string          `json:"restoringTime"`
-	SnapshotSize     int             `json:"snapshotSize"`
-	K8s              bool            `json:"k8s"`
-	Promoted         bool            `json:"promoted"`
+	ID               string           `json:"id"`
+	UUID             string           `json:"uuid"`
+	Name             string           `json:"name"`
+	Status           string           `json:"status"`
+	CPUCores         string           `json:"cpuCores"` // API returns string
+	NumGPUs          string           `json:"numGpus"`  // API returns string
+	Memory           string           `json:"memory"`
+	Storage          int              `json:"storage"`
+	GPUType          string           `json:"gpuType"`
+	Mode             string           `json:"mode"`
+	Template         string           `json:"template"`
+	IP               string           `json:"ip"`
+	Port             int              `json:"port"`
+	HTTPPorts        []int            `json:"httpPorts"`
+	SSHPublicKeys    []string         `json:"sshPublicKeys"`
+	CreatedAt        string           `json:"createdAt"`
+	ProvisioningTime string           `json:"provisioningTime"`
+	RestoringTime    string           `json:"restoringTime"`
+	SnapshotSize     int64            `json:"snapshotSize,omitempty"`
+	K8s              bool             `json:"k8s"`
+	Promoted         bool             `json:"promoted"`
 	LastRestart      *InstanceRestart `json:"lastRestart,omitempty"`
 }
 
@@ -67,12 +67,12 @@ type ModifyInstanceRequest struct {
 }
 
 type ModifyInstanceResponse struct {
-	Identifier   string `json:"identifier"`
-	InstanceName string `json:"instance_name"`
-	GPUType      string `json:"gpu_type,omitempty"`
-	Mode         string `json:"mode,omitempty"`
-	NumGPUs      int    `json:"num_gpus,omitempty"`
-	HTTPPorts    []int  `json:"http_ports,omitempty"`
+	Identifier   string  `json:"identifier"`
+	InstanceName string  `json:"instance_name"`
+	GPUType      *string `json:"gpu_type,omitempty"`
+	Mode         *string `json:"mode,omitempty"`
+	NumGPUs      *int    `json:"num_gpus,omitempty"`
+	HTTPPorts    []int   `json:"http_ports,omitempty"`
 }
 
 type InstanceDeleteResponse struct {
@@ -147,4 +147,3 @@ func (c *Client) DeleteInstance(ctx context.Context, id string) error {
 	}
 	return nil
 }
-

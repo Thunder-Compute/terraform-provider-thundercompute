@@ -1,6 +1,6 @@
 BINARY_NAME  = terraform-provider-thundercompute
 HOSTNAME     = registry.terraform.io
-NAMESPACE    = local
+NAMESPACE    = Thunder-Compute
 NAME         = thundercompute
 VERSION      = 0.1.0
 OS_ARCH      = $(shell go env GOOS)_$(shell go env GOARCH)

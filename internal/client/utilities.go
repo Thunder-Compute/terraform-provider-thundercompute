@@ -10,17 +10,11 @@ import (
 type GPUSpecConfig struct {
 	DisplayName   string       `json:"displayName"`
 	GPUCount      int          `json:"gpuCount"`
-	Limits        GPULimits    `json:"limits"`
 	Mode          string       `json:"mode"`
 	RAMPerVCPUGiB int          `json:"ramPerVCPUGiB"`
 	StorageGB     StorageRange `json:"storageGB"`
 	VCPUOptions   []int        `json:"vcpuOptions"`
 	VRAMGB        int          `json:"vramGB"`
-}
-
-type GPULimits struct {
-	MaxCPUPerGPU       int `json:"maxCPUPerGPU"`
-	MaxMemoryGiBPerGPU int `json:"maxMemoryGiBPerGPU"`
 }
 
 type StorageRange struct {
@@ -31,24 +25,31 @@ type StorageRange struct {
 // --- Templates ---
 
 type EnvironmentTemplate struct {
-	AutomountFolders    []string            `json:"automountFolders,omitempty"`
-	CleanupCommands     []string            `json:"cleanupCommands,omitempty"`
-	Default             bool                `json:"default,omitempty"`
+	DisplayName         string                `json:"displayName"`
+	ExtendedDescription string                `json:"extendedDescription,omitempty"`
+	AutomountFolders    []string              `json:"automountFolders"`
+	CleanupCommands     []string              `json:"cleanupCommands"`
+	OpenPorts           []int                 `json:"openPorts"`
+	StartupCommands     []string              `json:"startupCommands"`
+	StartupMinutes      int                   `json:"startupMinutes,omitempty"`
+	Version             int                   `json:"version,omitempty"`
 	DefaultSpecs        *TemplateDefaultSpecs `json:"defaultSpecs,omitempty"`
-	DisplayName         string              `json:"displayName"`
-	ExtendedDescription string              `json:"extendedDescription,omitempty"`
-	OpenPorts           []int               `json:"openPorts,omitempty"`
-	StartupCommands     []string            `json:"startupCommands,omitempty"`
-	StartupMinutes      int                 `json:"startupMinutes,omitempty"`
-	Version             int                 `json:"version,omitempty"`
+	Default             bool                  `json:"default,omitempty"`
 }
 
 type TemplateDefaultSpecs struct {
-	Cores   int    `json:"cores"`
-	GPUType string `json:"gpu_type"`
-	NumGPUs int    `json:"num_gpus"`
-	Storage int    `json:"storage"`
+	Cores    int    `json:"cores"`
+	GPUType  string `json:"gpu_type"`
+	NumGPUs  int    `json:"num_gpus"`
+	Storage  int    `json:"storage"`
 	Template string `json:"template"`
+}
+
+// --- Availability ---
+
+type GPUAvailabilityResponse struct {
+	GPUType map[string]map[string]string `json:"gpu_type"`
+	Specs   map[string]string            `json:"specs"`
 }
 
 // --- API methods ---
@@ -79,4 +80,12 @@ func (c *Client) GetTemplates(ctx context.Context) (map[string]EnvironmentTempla
 		return nil, fmt.Errorf("getting templates: %w", err)
 	}
 	return resp, nil
+}
+
+func (c *Client) GetGPUAvailability(ctx context.Context) (*GPUAvailabilityResponse, error) {
+	var resp GPUAvailabilityResponse
+	if err := c.doRequest(ctx, "GET", "/status", nil, &resp); err != nil {
+		return nil, fmt.Errorf("getting gpu availability: %w", err)
+	}
+	return &resp, nil
 }

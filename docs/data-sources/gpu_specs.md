@@ -34,9 +34,9 @@ Read-Only:
 
 - `display_name` (String) Human-readable GPU name.
 - `gpu_count` (Number) Number of GPUs in this configuration.
-- `max_cpu_per_gpu` (Number) Maximum vCPUs per GPU.
 - `mode` (String) Instance mode (prototyping or production).
 - `ram_per_vcpu_gib` (Number) RAM per vCPU in GiB.
 - `storage_max_gb` (Number) Maximum disk size in GB.
 - `storage_min_gb` (Number) Minimum disk size in GB.
+- `vcpu_options` (List of Number) Valid vCPU core options for this configuration.
 - `vram_gb` (Number) GPU VRAM in GB.
