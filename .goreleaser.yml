@@ -53,12 +53,12 @@ signs:
       - "${artifact}"
 
 release:
+  github:
+    owner: Thunder-Compute
+    name: terraform-provider-thundercompute
   extra_files:
     - glob: "terraform-registry-manifest.json"
       name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
-  # Uncomment to create draft releases for pre-release testing.
-  # The Terraform Registry requires published (non-draft) releases.
-  # draft: true
 
 changelog:
   disable: true
