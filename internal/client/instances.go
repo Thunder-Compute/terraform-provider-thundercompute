@@ -43,7 +43,7 @@ type InstanceListItem struct {
 	CreatedAt        string           `json:"createdAt"`
 	ProvisioningTime string           `json:"provisioningTime"`
 	RestoringTime    string           `json:"restoringTime"`
-	SnapshotSizeGB   int              `json:"snapshotSizeGB,omitempty"`
+	SnapshotSize     int64            `json:"snapshotSize,omitempty"`
 	K8s              bool             `json:"k8s"`
 	Promoted         bool             `json:"promoted"`
 	LastRestart      *InstanceRestart `json:"lastRestart,omitempty"`
