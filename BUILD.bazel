@@ -1,0 +1,22 @@
+load("@gazelle//:def.bzl", "gazelle")
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+# gazelle:prefix terraform-provider-thundercompute
+gazelle(name = "gazelle")
+
+go_library(
+    name = "terraform-provider-thundercompute_lib",
+    srcs = ["main.go"],
+    importpath = "terraform-provider-thundercompute",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//terraform/internal/provider",
+        "@com_github_hashicorp_terraform_plugin_framework//providerserver",
+    ],
+)
+
+go_binary(
+    name = "terraform",
+    embed = [":terraform-provider-thundercompute_lib"],
+    visibility = ["//visibility:public"],
+)

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
@@ -25,6 +27,15 @@ func testAccPreCheck(t *testing.T) {
 	if v := os.Getenv("TNR_API_TOKEN"); v == "" {
 		t.Fatal("TNR_API_TOKEN must be set for acceptance tests")
 	}
+	if os.Getenv("THUNDER_ALLOW_BILLABLE_TESTS") != "1" {
+		t.Fatal("THUNDER_ALLOW_BILLABLE_TESTS=1 must be set to acknowledge billable/destructive acceptance tests")
+	}
+}
+
+var testAccResourceSuffix = fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+
+func testAccResourceName(prefix string) string {
+	return prefix + "-" + testAccResourceSuffix
 }
 
 func testAccClient() *client.Client {
@@ -80,7 +91,7 @@ func TestAccInstanceResource_basic(t *testing.T) {
 	})
 }
 
-func TestAccInstanceResource_update_snapshotFallback(t *testing.T) {
+func TestAccInstanceResource_update(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories(),
@@ -178,6 +189,61 @@ func testAccDeleteInstanceOutOfBand(resourceName string) resource.TestCheckFunc 
 		}
 		return c.DeleteInstance(context.Background(), idx)
 	}
+}
+
+func TestInstanceResourcePlanValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		numGPUs     int
+		attributes  string
+		expectError string
+	}{
+		{name: "mode omitted", attributes: ""},
+		{name: "matching mode", attributes: `mode = "prototyping"`},
+		{name: "conflicting mode", attributes: `mode = "production"`, expectError: "Mode conflicts with GPU count"},
+		{name: "invalid GPU count", numGPUs: 3, expectError: "1.*2.*4.*8"},
+		{name: "SSH port rejected", attributes: "http_ports = [22]", expectError: "22"},
+		{name: "out of range port rejected", attributes: "http_ports = [65536]", expectError: "65535"},
+		{name: "invalid public key rejected", attributes: `public_key = "not-a-public-key"`, expectError: "OpenSSH public key"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			numGPUs := tt.numGPUs
+			if numGPUs == 0 {
+				numGPUs = 1
+			}
+			step := resource.TestStep{
+				Config:             instancePlanValidationConfig(numGPUs, tt.attributes),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: tt.expectError == "",
+			}
+			if tt.expectError != "" {
+				step.ExpectError = regexp.MustCompile(tt.expectError)
+			}
+			resource.UnitTest(t, resource.TestCase{
+				ProtoV6ProviderFactories: testAccProtoV6ProviderFactories(),
+				Steps:                    []resource.TestStep{step},
+			})
+		})
+	}
+}
+
+func instancePlanValidationConfig(numGPUs int, attributes string) string {
+	return fmt.Sprintf(`
+provider "thundercompute" {
+  api_token = "unit-test-token"
+}
+
+resource "thundercompute_instance" "test" {
+  gpu_type     = "A6000"
+  template     = "base"
+  cpu_cores    = 4
+  disk_size_gb = 100
+  num_gpus     = %d
+  %s
+}
+`, numGPUs, attributes)
 }
 
 // All configs use A6000 prototyping ($0.35/hr) -- cheapest available

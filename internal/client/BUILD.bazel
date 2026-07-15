@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "client",
+    srcs = [
+        "client.go",
+        "errors.go",
+        "instances.go",
+        "snapshots.go",
+        "ssh_keys.go",
+        "utilities.go",
+    ],
+    importpath = "terraform-provider-thundercompute/internal/client",
+    visibility = ["//terraform:__subpackages__"],
+    deps = [
+        "@com_github_hashicorp_go_retryablehttp//:go-retryablehttp",
+        "@com_github_hashicorp_terraform_plugin_log//tflog",
+    ],
+)
+
+go_test(
+    name = "client_test",
+    srcs = ["client_test.go"],
+    embed = [":client"],
+    deps = ["@com_github_hashicorp_go_retryablehttp//:go-retryablehttp"],
+)

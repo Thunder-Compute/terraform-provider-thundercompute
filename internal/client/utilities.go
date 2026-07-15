@@ -11,6 +11,7 @@ type GPUSpecConfig struct {
 	DisplayName   string       `json:"displayName"`
 	GPUCount      int          `json:"gpuCount"`
 	Mode          string       `json:"mode"`
+	RAMCapGiB     int          `json:"ramCapGiB,omitempty"`
 	RAMPerVCPUGiB int          `json:"ramPerVCPUGiB"`
 	StorageGB     StorageRange `json:"storageGB"`
 	VCPUOptions   []int        `json:"vcpuOptions"`
@@ -58,7 +59,7 @@ func (c *Client) GetPricing(ctx context.Context) (map[string]float64, error) {
 	var resp struct {
 		Pricing map[string]float64 `json:"pricing"`
 	}
-	if err := c.doRequest(ctx, "GET", "/pricing", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v2/pricing", nil, &resp); err != nil {
 		return nil, fmt.Errorf("getting pricing: %w", err)
 	}
 	return resp.Pricing, nil
@@ -68,7 +69,7 @@ func (c *Client) GetGPUSpecs(ctx context.Context) (map[string]GPUSpecConfig, err
 	var resp struct {
 		Specs map[string]GPUSpecConfig `json:"specs"`
 	}
-	if err := c.doRequest(ctx, "GET", "/specs", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v2/specs", nil, &resp); err != nil {
 		return nil, fmt.Errorf("getting gpu specs: %w", err)
 	}
 	return resp.Specs, nil
@@ -76,7 +77,7 @@ func (c *Client) GetGPUSpecs(ctx context.Context) (map[string]GPUSpecConfig, err
 
 func (c *Client) GetTemplates(ctx context.Context) (map[string]EnvironmentTemplate, error) {
 	var resp map[string]EnvironmentTemplate
-	if err := c.doRequest(ctx, "GET", "/thunder-templates", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v1/thunder-templates", nil, &resp); err != nil {
 		return nil, fmt.Errorf("getting templates: %w", err)
 	}
 	return resp, nil
@@ -84,7 +85,7 @@ func (c *Client) GetTemplates(ctx context.Context) (map[string]EnvironmentTempla
 
 func (c *Client) GetGPUAvailability(ctx context.Context) (*GPUAvailabilityResponse, error) {
 	var resp GPUAvailabilityResponse
-	if err := c.doRequest(ctx, "GET", "/status", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v2/status", nil, &resp); err != nil {
 		return nil, fmt.Errorf("getting gpu availability: %w", err)
 	}
 	return &resp, nil

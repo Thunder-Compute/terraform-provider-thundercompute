@@ -10,12 +10,24 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 func newTestServer(handler http.Handler) (*httptest.Server, *Client) {
 	srv := httptest.NewServer(handler)
 	c := NewClient(srv.URL, "test-token", "test")
 	c.httpClient = srv.Client()
+	return srv, c
+}
+
+func newRetryTestServer(handler http.Handler) (*httptest.Server, *Client) {
+	srv := httptest.NewServer(handler)
+	c := NewClient(srv.URL, "test-token", "test")
+	roundTripper := c.httpClient.Transport.(*retryablehttp.RoundTripper)
+	roundTripper.Client.RetryMax = 2
+	roundTripper.Client.RetryWaitMin = 0
+	roundTripper.Client.RetryWaitMax = 0
 	return srv, c
 }
 
@@ -165,6 +177,43 @@ func TestDoRequest_LargeResponseBounded(t *testing.T) {
 	}
 }
 
+func TestDoRequest_RetriesOnlySafeMethods(t *testing.T) {
+	tests := []struct {
+		name         string
+		method       string
+		wantAttempts int
+		wantError    bool
+	}{
+		{name: "GET", method: http.MethodGet, wantAttempts: 2},
+		{name: "idempotent PATCH", method: http.MethodPatch, wantAttempts: 2},
+		{name: "non-idempotent POST", method: http.MethodPost, wantAttempts: 1, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attempts := 0
+			srv, c := newRetryTestServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				attempts++
+				if attempts == 1 {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					json.NewEncoder(w).Encode(APIError{StatusCode: 503, ErrorType: "unavailable"})
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+			}))
+			defer srv.Close()
+
+			err := c.doRequest(context.Background(), tt.method, "/retry", map[string]string{"value": "test"}, nil)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("error = %v, wantError %v", err, tt.wantError)
+			}
+			if attempts != tt.wantAttempts {
+				t.Errorf("attempts = %d, want %d", attempts, tt.wantAttempts)
+			}
+		})
+	}
+}
+
 // --- Error classification tests ---
 
 func TestDoRequest_APIError(t *testing.T) {
@@ -302,7 +351,7 @@ func TestGetInstanceByUUID(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/instances/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(instances)
 	})
 
@@ -334,7 +383,7 @@ func TestGetInstanceByUUID(t *testing.T) {
 
 func TestGetInstanceByUUID_EmptyList(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/instances/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("{}"))
 	})
 
@@ -351,10 +400,10 @@ func TestGetInstanceByUUID_EmptyList(t *testing.T) {
 }
 
 func TestCreateInstance_RequestBody(t *testing.T) {
-	var gotReq CreateInstanceRequest
+	var gotReq map[string]interface{}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/instances/create", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/instances/create", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("method = %s, want POST", r.Method)
 		}
@@ -374,8 +423,11 @@ func TestCreateInstance_RequestBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotReq.GPUType != "H100" {
-		t.Errorf("gpu_type = %q, want H100", gotReq.GPUType)
+	if gotReq["gpu_type"] != "H100" {
+		t.Errorf("gpu_type = %q, want H100", gotReq["gpu_type"])
+	}
+	if _, ok := gotReq["mode"]; ok {
+		t.Errorf("mode must not be sent to the mode-less create API: %#v", gotReq)
 	}
 	if resp.UUID != "new-uuid" {
 		t.Errorf("uuid = %q, want new-uuid", resp.UUID)
@@ -496,7 +548,7 @@ func TestModifyInstance_PartialBody(t *testing.T) {
 	var gotBody map[string]interface{}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/instances/0/modify", func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&gotBody)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(ModifyInstanceResponse{Identifier: "0", InstanceName: "test"})
@@ -506,7 +558,8 @@ func TestModifyInstance_PartialBody(t *testing.T) {
 	defer srv.Close()
 
 	cores := 8
-	req := ModifyInstanceRequest{CPUCores: &cores}
+	legacyMode := "production"
+	req := ModifyInstanceRequest{CPUCores: &cores, Mode: &legacyMode}
 	_, err := c.ModifyInstance(context.Background(), "0", req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -517,6 +570,42 @@ func TestModifyInstance_PartialBody(t *testing.T) {
 	// Omitted fields should not be present
 	if _, exists := gotBody["gpu_type"]; exists {
 		t.Error("gpu_type should be omitted from partial modify request")
+	}
+	if _, exists := gotBody["mode"]; exists {
+		t.Error("mode must not be sent to the mode-less modify API")
+	}
+}
+
+func TestUpdateInstancePorts_UsesIdempotentPatch(t *testing.T) {
+	var gotBody PortUpdateRequest
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/instances/0/ports", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("method = %s, want PATCH", r.Method)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		json.NewEncoder(w).Encode(PortUpdateResponse{Identifier: "0", HTTPPorts: []int{8080}})
+	})
+
+	srv, c := newTestServer(mux)
+	defer srv.Close()
+
+	resp, err := c.UpdateInstancePorts(context.Background(), "0", PortUpdateRequest{
+		AddPorts:    []int{8080},
+		RemovePorts: []int{3000},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(gotBody.AddPorts) != 1 || gotBody.AddPorts[0] != 8080 {
+		t.Errorf("add_ports = %v, want [8080]", gotBody.AddPorts)
+	}
+	if len(gotBody.RemovePorts) != 1 || gotBody.RemovePorts[0] != 3000 {
+		t.Errorf("remove_ports = %v, want [3000]", gotBody.RemovePorts)
+	}
+	if len(resp.HTTPPorts) != 1 || resp.HTTPPorts[0] != 8080 {
+		t.Errorf("http_ports = %v, want [8080]", resp.HTTPPorts)
 	}
 }
 
@@ -529,7 +618,7 @@ func TestGetSnapshotByName(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/snapshots/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/snapshots/list", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(snapshots)
 	})
 
@@ -560,7 +649,7 @@ func TestGetSnapshotByID(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/snapshots/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/snapshots/list", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(snapshots)
 	})
 
@@ -586,7 +675,7 @@ func TestGetSnapshotByID(t *testing.T) {
 
 func TestCreateSnapshot_202Accepted(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/snapshots/create", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/snapshots/create", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(CreateSnapshotResponse{Message: "Snapshot creation started"})
 	})
@@ -614,7 +703,7 @@ func TestGetSSHKeyByID(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/keys/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/keys/list", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(keys)
 	})
 
@@ -640,7 +729,7 @@ func TestGetSSHKeyByID(t *testing.T) {
 
 func TestAddSSHKey_ConflictError(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/keys/add", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/keys/add", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(APIError{StatusCode: 409, ErrorType: "conflict", Message: "key exists"})
 	})
@@ -657,13 +746,40 @@ func TestAddSSHKey_ConflictError(t *testing.T) {
 	}
 }
 
+func TestAddSSHKey_Success(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/keys/add", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		var body SSHKeyAddRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decoding body: %v", err)
+		}
+		if body.Name != "deploy" || body.PublicKey == "" {
+			t.Errorf("body = %+v, want deploy key", body)
+		}
+		json.NewEncoder(w).Encode(SSHKeyAddResponse{Key: &SSHKey{ID: "key-1", Name: body.Name, PublicKey: body.PublicKey}})
+	})
+
+	srv, c := newTestServer(mux)
+	defer srv.Close()
+	resp, err := c.AddSSHKey(context.Background(), SSHKeyAddRequest{Name: "deploy", PublicKey: "ssh-ed25519 AAAA..."})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Key == nil || resp.Key.ID != "key-1" {
+		t.Errorf("response = %+v, want key-1", resp)
+	}
+}
+
 // --- Utilities API tests ---
 
 func TestGetPricing(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/pricing", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v2/pricing", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"pricing": map[string]float64{"h100_x1_prototyping": 1.38, "a6000_x1_prototyping": 0.35},
+			"pricing": map[string]float64{"h100_x1": 1.38, "a6000_x1": 0.35},
 		})
 	})
 
@@ -674,17 +790,17 @@ func TestGetPricing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pricing["a6000_x1_prototyping"] != 0.35 {
-		t.Errorf("a6000 price = %f, want 0.35", pricing["a6000_x1_prototyping"])
+	if pricing["a6000_x1"] != 0.35 {
+		t.Errorf("a6000 price = %f, want 0.35", pricing["a6000_x1"])
 	}
 }
 
 func TestGetGPUSpecs(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/specs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v2/specs", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"specs": map[string]GPUSpecConfig{
-				"a6000_x1_prototyping": {DisplayName: "A6000", VRAMGB: 48, GPUCount: 1},
+				"a6000_x1": {DisplayName: "A6000", VRAMGB: 48, GPUCount: 1, RAMCapGiB: 96},
 			},
 		})
 	})
@@ -696,14 +812,17 @@ func TestGetGPUSpecs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if specs["a6000_x1_prototyping"].VRAMGB != 48 {
-		t.Errorf("vram = %d, want 48", specs["a6000_x1_prototyping"].VRAMGB)
+	if specs["a6000_x1"].VRAMGB != 48 {
+		t.Errorf("vram = %d, want 48", specs["a6000_x1"].VRAMGB)
+	}
+	if specs["a6000_x1"].RAMCapGiB != 96 {
+		t.Errorf("ram cap = %d, want 96", specs["a6000_x1"].RAMCapGiB)
 	}
 }
 
 func TestGetTemplates(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/thunder-templates", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/thunder-templates", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]EnvironmentTemplate{
 			"base": {DisplayName: "Base Image", Default: true},
 		})
@@ -733,13 +852,25 @@ func TestNewClient_DefaultBaseURL(t *testing.T) {
 	}
 }
 
-func TestNewClient_CustomBaseURL(t *testing.T) {
-	c := NewClient("https://custom:9999/v2", "tok", "1.0.0")
-	if c.baseURL != "https://custom:9999/v2" {
-		t.Errorf("baseURL = %q, want custom", c.baseURL)
+func TestNewClient_NormalizesAPIURLToRoot(t *testing.T) {
+	tests := map[string]string{
+		"https://custom:9999":         "https://custom:9999",
+		"https://custom:9999/":        "https://custom:9999",
+		"https://custom:9999/v1":      "https://custom:9999",
+		"https://custom:9999/v2/":     "https://custom:9999",
+		"https://custom:9999/api/v1/": "https://custom:9999/api",
 	}
-	if c.userAgent != "terraform-provider-thundercompute/1.0.0" {
-		t.Errorf("userAgent = %q, want version 1.0.0", c.userAgent)
+
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			c := NewClient(input, "tok", "1.0.0")
+			if c.baseURL != want {
+				t.Errorf("baseURL = %q, want %q", c.baseURL, want)
+			}
+			if c.userAgent != "terraform-provider-thundercompute/1.0.0" {
+				t.Errorf("userAgent = %q, want version 1.0.0", c.userAgent)
+			}
+		})
 	}
 }
 
@@ -747,7 +878,7 @@ func TestNewClient_CustomBaseURL(t *testing.T) {
 
 func TestDeleteSSHKey_Success(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/keys/key-1", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %s, want DELETE", r.Method)
 		}
@@ -817,7 +948,7 @@ func TestDeleteSnapshot_NotFound(t *testing.T) {
 
 func TestListSSHKeys_Empty(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/keys/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/keys/list", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("[]"))
 	})
 
@@ -835,7 +966,7 @@ func TestListSSHKeys_Empty(t *testing.T) {
 
 func TestListSnapshots_Empty(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/snapshots/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/snapshots/list", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("[]"))
 	})
 
@@ -875,6 +1006,31 @@ func TestModifyInstance_TemporarilyDisabled(t *testing.T) {
 	}
 }
 
+func TestModifyInstance_PreservesUnsupportedInstanceVersion(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIError{
+			StatusCode: 400,
+			ErrorType:  "unsupported_instance_version",
+			Message:    "This legacy instance must be recreated manually",
+		})
+	})
+
+	srv, c := newTestServer(mux)
+	defer srv.Close()
+
+	cores := 8
+	_, err := c.ModifyInstance(context.Background(), "0", ModifyInstanceRequest{CPUCores: &cores})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.ErrorType != "unsupported_instance_version" {
+		t.Errorf("error_type = %q, want unsupported_instance_version", apiErr.ErrorType)
+	}
+}
+
 func TestListInstances_Success(t *testing.T) {
 	instances := map[string]InstanceListItem{
 		"0": {UUID: "aaa-111", Name: "inst-0", Status: "RUNNING"},
@@ -882,7 +1038,7 @@ func TestListInstances_Success(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/instances/list", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(instances)
 	})
 
@@ -900,7 +1056,7 @@ func TestListInstances_Success(t *testing.T) {
 
 func TestCreateInstance_ErrorResponse(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/instances/create", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/instances/create", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(APIError{StatusCode: 400, ErrorType: "invalid_request", Message: "bad gpu_type"})
 	})

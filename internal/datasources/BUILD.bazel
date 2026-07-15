@@ -1,0 +1,46 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "datasources",
+    srcs = [
+        "gpu_availability_data_source.go",
+        "gpu_specs_data_source.go",
+        "instances_data_source.go",
+        "pricing_data_source.go",
+        "templates_data_source.go",
+    ],
+    importpath = "terraform-provider-thundercompute/internal/datasources",
+    visibility = ["//terraform:__subpackages__"],
+    deps = [
+        "//terraform/internal/client",
+        "@com_github_hashicorp_terraform_plugin_framework//datasource",
+        "@com_github_hashicorp_terraform_plugin_framework//datasource/schema",
+        "@com_github_hashicorp_terraform_plugin_framework//types",
+    ],
+)
+
+go_test(
+    name = "datasources_test",
+    srcs = [
+        "discovery_data_sources_test.go",
+        "gpu_specs_data_source_test.go",
+        "instances_data_source_test.go",
+        "pricing_data_source_test.go",
+        "templates_data_source_test.go",
+    ],
+    embed = [":datasources"],
+    env_inherit = [
+        "PATH",
+        "TF_ACC",
+        "TNR_API_TOKEN",
+    ],
+    deps = [
+        "//terraform/internal/client",
+        "//terraform/internal/provider",
+        "@com_github_hashicorp_terraform_plugin_framework//datasource",
+        "@com_github_hashicorp_terraform_plugin_framework//providerserver",
+        "@com_github_hashicorp_terraform_plugin_framework//tfsdk",
+        "@com_github_hashicorp_terraform_plugin_go//tfprotov6",
+        "@com_github_hashicorp_terraform_plugin_testing//helper/resource",
+    ],
+)

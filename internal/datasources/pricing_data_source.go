@@ -36,7 +36,7 @@ func (d *PricingDataSource) Schema(_ context.Context, _ datasource.SchemaRequest
 			"pricing": schema.MapAttribute{
 				Computed:    true,
 				ElementType: types.Float64Type,
-				Description: "Map of GPU type/mode identifier to hourly price in USD.",
+				Description: "Map of canonical GPU/count spec key (for example a6000_x1) to hourly price in USD.",
 			},
 		},
 	}

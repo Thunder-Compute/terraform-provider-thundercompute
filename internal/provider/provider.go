@@ -48,7 +48,7 @@ func (p *ThunderComputeProvider) Schema(_ context.Context, _ provider.SchemaRequ
 			},
 			"api_url": schema.StringAttribute{
 				Optional:    true,
-				Description: "Thunder Compute API base URL. Defaults to https://api.thundercompute.com:8443/v1",
+				Description: "Thunder Compute API root URL. Defaults to https://api.thundercompute.com:8443. Existing values ending in /v1 or /v2 are accepted and normalized to the same root.",
 			},
 		},
 	}

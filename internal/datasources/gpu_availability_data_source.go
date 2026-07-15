@@ -32,7 +32,7 @@ func (d *GPUAvailabilityDataSource) Metadata(_ context.Context, req datasource.M
 func (d *GPUAvailabilityDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Retrieves current GPU availability status for all Thunder Compute configurations. " +
-			"Each key matches the spec keys from the thundercompute_gpu_specs data source (e.g. \"h100_x1_production\"). " +
+			"Each canonical key matches the spec keys from the thundercompute_gpu_specs data source (for example \"h100_x1\"). " +
 			"Values are \"available\" or \"unavailable\".",
 		Attributes: map[string]schema.Attribute{
 			"specs": schema.MapAttribute{

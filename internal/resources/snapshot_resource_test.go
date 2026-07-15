@@ -53,7 +53,7 @@ func TestAccSnapshotResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttrSet("thundercompute_snapshot.test", "id"),
 					resource.TestCheckResourceAttrSet("thundercompute_snapshot.test", "status"),
 					resource.TestCheckResourceAttrSet("thundercompute_snapshot.test", "created_at"),
-					resource.TestCheckResourceAttr("thundercompute_snapshot.test", "name", "tf-test-snapshot"),
+					resource.TestCheckResourceAttr("thundercompute_snapshot.test", "name", testAccResourceName("tf-test-snapshot")),
 				),
 			},
 		},
@@ -86,8 +86,8 @@ func TestAccSnapshotResource_disappears(t *testing.T) {
 		CheckDestroy:             checkSnapshotDestroyed,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccSnapshotConfig_basic(),
-				Check:  testAccDeleteSnapshotOutOfBand("thundercompute_snapshot.test"),
+				Config:             testAccSnapshotConfig_basic(),
+				Check:              testAccDeleteSnapshotOutOfBand("thundercompute_snapshot.test"),
 				ExpectNonEmptyPlan: true,
 			},
 		},
@@ -106,7 +106,7 @@ func testAccDeleteSnapshotOutOfBand(resourceName string) resource.TestCheckFunc 
 }
 
 func testAccSnapshotConfig_basic() string {
-	return `
+	return fmt.Sprintf(`
 provider "thundercompute" {}
 
 resource "thundercompute_instance" "test" {
@@ -120,7 +120,7 @@ resource "thundercompute_instance" "test" {
 
 resource "thundercompute_snapshot" "test" {
   instance_id = thundercompute_instance.test.id
-  name        = "tf-test-snapshot"
+  name        = %q
 }
-`
+`, testAccResourceName("tf-test-snapshot"))
 }

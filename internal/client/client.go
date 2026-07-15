@@ -9,17 +9,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-const defaultBaseURL = "https://api.thundercompute.com:8443/v1"
+const defaultBaseURL = "https://api.thundercompute.com:8443"
 
 // Client is a thin, reusable HTTP client for the Thunder Compute API.
 // It holds a single http.Client with TLS verification, connection pooling,
-// and automatic retry for transient failures (5xx, network errors).
+// and method-aware retry for safe GETs and the idempotent port PATCH.
 type Client struct {
 	baseURL    string
 	apiToken   string
@@ -27,10 +28,13 @@ type Client struct {
 	httpClient *http.Client
 }
 
+type retryMethodContextKey struct{}
+
 func NewClient(baseURL, apiToken, version string) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	baseURL = normalizeBaseURL(baseURL)
 	if version == "" {
 		version = "dev"
 	}
@@ -49,8 +53,16 @@ func NewClient(baseURL, apiToken, version string) *Client {
 			IdleConnTimeout:     90 * time.Second,
 		},
 	}
-	// Only retry on 5xx and connection errors, not on 4xx client errors
-	retryClient.CheckRetry = retryablehttp.ErrorPropagatedRetryPolicy
+	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		method, _ := ctx.Value(retryMethodContextKey{}).(string)
+		if method != http.MethodGet && method != http.MethodPatch {
+			return false, nil
+		}
+		return retryablehttp.ErrorPropagatedRetryPolicy(ctx, resp, err)
+	}
+	// Preserve the final HTTP response so doRequest can decode its structured
+	// API error after safe-method retries are exhausted.
+	retryClient.ErrorHandler = retryablehttp.PassthroughErrorHandler
 
 	return &Client{
 		baseURL:    baseURL,
@@ -58,6 +70,16 @@ func NewClient(baseURL, apiToken, version string) *Client {
 		userAgent:  "terraform-provider-thundercompute/" + version,
 		httpClient: retryClient.StandardClient(),
 	}
+}
+
+func normalizeBaseURL(baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	for _, suffix := range []string{"/v1", "/v2"} {
+		if strings.HasSuffix(baseURL, suffix) {
+			return strings.TrimSuffix(baseURL, suffix)
+		}
+	}
+	return baseURL
 }
 
 // doRequest executes an authenticated API request.
@@ -82,7 +104,8 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body, resul
 		"path":   path,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
+	requestCtx := context.WithValue(ctx, retryMethodContextKey{}, method)
+	req, err := http.NewRequestWithContext(requestCtx, method, fullURL, bodyReader)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}

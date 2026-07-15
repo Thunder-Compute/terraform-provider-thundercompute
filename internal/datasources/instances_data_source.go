@@ -55,11 +55,15 @@ func (d *InstancesDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"uuid":       schema.StringAttribute{Computed: true, Description: "Instance UUID."},
-						"name":       schema.StringAttribute{Computed: true, Description: "Instance display name."},
-						"status":     schema.StringAttribute{Computed: true, Description: "Current instance status."},
-						"gpu_type":   schema.StringAttribute{Computed: true, Description: "GPU type."},
-						"mode":       schema.StringAttribute{Computed: true, Description: "Instance mode (prototyping or production)."},
+						"uuid":     schema.StringAttribute{Computed: true, Description: "Instance UUID."},
+						"name":     schema.StringAttribute{Computed: true, Description: "Instance display name."},
+						"status":   schema.StringAttribute{Computed: true, Description: "Current instance status."},
+						"gpu_type": schema.StringAttribute{Computed: true, Description: "GPU type."},
+						"mode": schema.StringAttribute{
+							Computed:           true,
+							Description:        "Deprecated route hint derived from num_gpus. It may be inaccurate for off-route legacy instances.",
+							DeprecationMessage: "mode is not returned by the public API and is derived from num_gpus for one migration cycle.",
+						},
 						"template":   schema.StringAttribute{Computed: true, Description: "OS template or snapshot name."},
 						"cpu_cores":  schema.Int64Attribute{Computed: true, Description: "Number of vCPU cores."},
 						"num_gpus":   schema.Int64Attribute{Computed: true, Description: "Number of GPUs."},
@@ -107,15 +111,16 @@ func (d *InstancesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 	}
 	for _, k := range keys {
 		inst := instances[k]
+		numGPUs := parseIntOr(inst.NumGPUs, 0)
 		model.Instances = append(model.Instances, InstanceDataModel{
 			UUID:      types.StringValue(inst.UUID),
 			Name:      types.StringValue(inst.Name),
 			Status:    types.StringValue(inst.Status),
 			GPUType:   types.StringValue(inst.GPUType),
-			Mode:      types.StringValue(inst.Mode),
+			Mode:      derivedModeValue(numGPUs),
 			Template:  types.StringValue(inst.Template),
 			CPUCores:  types.Int64Value(parseIntOr(inst.CPUCores, 0)),
-			NumGPUs:   types.Int64Value(parseIntOr(inst.NumGPUs, 0)),
+			NumGPUs:   types.Int64Value(numGPUs),
 			Memory:    types.StringValue(inst.Memory),
 			Storage:   types.Int64Value(int64(inst.Storage)),
 			IP:        types.StringValue(inst.IP),
@@ -125,6 +130,17 @@ func (d *InstancesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+}
+
+func derivedModeValue(numGPUs int64) types.String {
+	switch numGPUs {
+	case 1, 2:
+		return types.StringValue("prototyping")
+	case 4, 8:
+		return types.StringValue("production")
+	default:
+		return types.StringNull()
+	}
 }
 
 func parseIntOr(s string, fallback int64) int64 {

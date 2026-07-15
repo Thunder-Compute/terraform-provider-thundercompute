@@ -102,10 +102,10 @@ func (d *TemplatesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 			m.DefaultStorage = types.Int64Value(int64(tmpl.DefaultSpecs.Storage))
 			m.DefaultNumGPUs = types.Int64Value(int64(tmpl.DefaultSpecs.NumGPUs))
 		} else {
-			m.DefaultGPUType = types.StringValue("")
-			m.DefaultCores = types.Int64Value(0)
-			m.DefaultStorage = types.Int64Value(0)
-			m.DefaultNumGPUs = types.Int64Value(0)
+			m.DefaultGPUType = types.StringNull()
+			m.DefaultCores = types.Int64Null()
+			m.DefaultStorage = types.Int64Null()
+			m.DefaultNumGPUs = types.Int64Null()
 		}
 		model.Templates[key] = m
 	}

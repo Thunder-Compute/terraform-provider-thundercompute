@@ -42,7 +42,7 @@ func TestAccSSHKeyResource_basic(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("thundercompute_ssh_key.test", "id"),
 					resource.TestCheckResourceAttrSet("thundercompute_ssh_key.test", "fingerprint"),
-					resource.TestCheckResourceAttr("thundercompute_ssh_key.test", "name", "tf-test-key"),
+					resource.TestCheckResourceAttr("thundercompute_ssh_key.test", "name", testAccResourceName("tf-test-key")),
 				),
 			},
 		},
@@ -57,11 +57,11 @@ func TestAccSSHKeyResource_recreate(t *testing.T) {
 		Steps: []resource.TestStep{
 			{
 				Config: testAccSSHKeyConfig_basic(),
-				Check:  resource.TestCheckResourceAttr("thundercompute_ssh_key.test", "name", "tf-test-key"),
+				Check:  resource.TestCheckResourceAttr("thundercompute_ssh_key.test", "name", testAccResourceName("tf-test-key")),
 			},
 			{
 				Config: testAccSSHKeyConfig_renamed(),
-				Check:  resource.TestCheckResourceAttr("thundercompute_ssh_key.test", "name", "tf-test-key-renamed"),
+				Check:  resource.TestCheckResourceAttr("thundercompute_ssh_key.test", "name", testAccResourceName("tf-test-key-renamed")),
 			},
 		},
 	})
@@ -92,8 +92,8 @@ func TestAccSSHKeyResource_disappears(t *testing.T) {
 		CheckDestroy:             checkSSHKeyDestroyed,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccSSHKeyConfig_basic(),
-				Check:  testAccDeleteSSHKeyOutOfBand("thundercompute_ssh_key.test"),
+				Config:             testAccSSHKeyConfig_basic(),
+				Check:              testAccDeleteSSHKeyOutOfBand("thundercompute_ssh_key.test"),
 				ExpectNonEmptyPlan: true,
 			},
 		},
@@ -112,23 +112,23 @@ func testAccDeleteSSHKeyOutOfBand(resourceName string) resource.TestCheckFunc {
 }
 
 func testAccSSHKeyConfig_basic() string {
-	return `
+	return fmt.Sprintf(`
 provider "thundercompute" {}
 
 resource "thundercompute_ssh_key" "test" {
-  name       = "tf-test-key"
+  name       = %q
   public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1lnJOg4gHI9wg++M9T2SqaDMb8dw7ClZcKSAin/Pav tf-test@terraform"
 }
-`
+`, testAccResourceName("tf-test-key"))
 }
 
 func testAccSSHKeyConfig_renamed() string {
-	return `
+	return fmt.Sprintf(`
 provider "thundercompute" {}
 
 resource "thundercompute_ssh_key" "test" {
-  name       = "tf-test-key-renamed"
+  name       = %q
   public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1lnJOg4gHI9wg++M9T2SqaDMb8dw7ClZcKSAin/Pav tf-test@terraform"
 }
-`
+`, testAccResourceName("tf-test-key-renamed"))
 }

@@ -27,7 +27,7 @@ type SSHKey struct {
 
 func (c *Client) AddSSHKey(ctx context.Context, req SSHKeyAddRequest) (*SSHKeyAddResponse, error) {
 	var resp SSHKeyAddResponse
-	if err := c.doRequest(ctx, "POST", "/keys/add", req, &resp); err != nil {
+	if err := c.doRequest(ctx, "POST", "/v1/keys/add", req, &resp); err != nil {
 		return nil, fmt.Errorf("adding ssh key: %w", err)
 	}
 	return &resp, nil
@@ -35,7 +35,7 @@ func (c *Client) AddSSHKey(ctx context.Context, req SSHKeyAddRequest) (*SSHKeyAd
 
 func (c *Client) ListSSHKeys(ctx context.Context) ([]SSHKey, error) {
 	var resp []SSHKey
-	if err := c.doRequest(ctx, "GET", "/keys/list", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v1/keys/list", nil, &resp); err != nil {
 		return nil, fmt.Errorf("listing ssh keys: %w", err)
 	}
 	return resp, nil
@@ -56,7 +56,7 @@ func (c *Client) GetSSHKeyByID(ctx context.Context, id string) (*SSHKey, error) 
 }
 
 func (c *Client) DeleteSSHKey(ctx context.Context, id string) error {
-	if err := c.doRequest(ctx, "DELETE", "/keys/"+url.PathEscape(id), nil, nil); err != nil {
+	if err := c.doRequest(ctx, "DELETE", "/v1/keys/"+url.PathEscape(id), nil, nil); err != nil {
 		return fmt.Errorf("deleting ssh key %s: %w", id, err)
 	}
 	return nil

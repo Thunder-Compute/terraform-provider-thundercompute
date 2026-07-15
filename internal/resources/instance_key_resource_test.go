@@ -32,8 +32,8 @@ func TestAccInstanceKeyResource_disappearsWithInstance(t *testing.T) {
 		CheckDestroy:             checkInstanceDestroyed,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccInstanceKeyConfig_basic(),
-				Check:  testAccDeleteInstanceOutOfBand("thundercompute_instance.test"),
+				Config:             testAccInstanceKeyConfig_basic(),
+				Check:              testAccDeleteInstanceOutOfBand("thundercompute_instance.test"),
 				ExpectNonEmptyPlan: true,
 			},
 		},

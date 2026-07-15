@@ -153,9 +153,13 @@ func (r *InstanceKeyResource) Update(_ context.Context, _ resource.UpdateRequest
 		"Instance keys are immutable. Any change triggers recreation.")
 }
 
-func (r *InstanceKeyResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
+func (r *InstanceKeyResource) Delete(_ context.Context, _ resource.DeleteRequest, resp *resource.DeleteResponse) {
 	// The Thunder Compute API does not support removing SSH keys from instances.
 	// Destroying this resource removes it from Terraform state only.
+	resp.Diagnostics.AddWarning(
+		"SSH key remains authorized on the instance",
+		"Thunder Compute cannot revoke instance SSH keys through the public API. Terraform removed only the thundercompute_instance_key state; remove the key from authorized_keys inside the instance if access must be revoked.",
+	)
 }
 
 // instanceKeyID produces a deterministic composite ID from the instance UUID and public key.

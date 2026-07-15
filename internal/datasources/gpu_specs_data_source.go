@@ -25,6 +25,7 @@ type GPUSpecModel struct {
 	DisplayName   types.String `tfsdk:"display_name"`
 	GPUCount      types.Int64  `tfsdk:"gpu_count"`
 	Mode          types.String `tfsdk:"mode"`
+	RAMCapGiB     types.Int64  `tfsdk:"ram_cap_gib"`
 	RAMPerVCPUGiB types.Int64  `tfsdk:"ram_per_vcpu_gib"`
 	VRAMGB        types.Int64  `tfsdk:"vram_gb"`
 	VCPUOptions   types.List   `tfsdk:"vcpu_options"`
@@ -48,9 +49,14 @@ func (d *GPUSpecsDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"display_name":     schema.StringAttribute{Computed: true, Description: "Human-readable GPU name."},
-						"gpu_count":        schema.Int64Attribute{Computed: true, Description: "Number of GPUs in this configuration."},
-						"mode":             schema.StringAttribute{Computed: true, Description: "Instance mode (prototyping or production)."},
+						"display_name": schema.StringAttribute{Computed: true, Description: "Human-readable GPU name."},
+						"gpu_count":    schema.Int64Attribute{Computed: true, Description: "Number of GPUs in this configuration."},
+						"mode": schema.StringAttribute{
+							Computed:           true,
+							Description:        "Deprecated route hint derived from gpu_count. It is not an authoritative value for legacy instances.",
+							DeprecationMessage: "mode is derived from gpu_count and will be removed after the v0.2 migration cycle; use gpu_count and the canonical spec key instead.",
+						},
+						"ram_cap_gib":      schema.Int64Attribute{Computed: true, Description: "Maximum total system RAM in GiB when the configuration uses capped affine RAM sizing; zero means uncapped proportional sizing."},
 						"ram_per_vcpu_gib": schema.Int64Attribute{Computed: true, Description: "RAM per vCPU in GiB."},
 						"vram_gb":          schema.Int64Attribute{Computed: true, Description: "GPU VRAM in GB."},
 						"vcpu_options":     schema.ListAttribute{Computed: true, ElementType: types.Int64Type, Description: "Valid vCPU core options for this configuration."},
@@ -97,7 +103,8 @@ func (d *GPUSpecsDataSource) Read(ctx context.Context, _ datasource.ReadRequest,
 		model.Specs[key] = GPUSpecModel{
 			DisplayName:   types.StringValue(spec.DisplayName),
 			GPUCount:      types.Int64Value(int64(spec.GPUCount)),
-			Mode:          types.StringValue(spec.Mode),
+			Mode:          derivedModeValue(int64(spec.GPUCount)),
+			RAMCapGiB:     types.Int64Value(int64(spec.RAMCapGiB)),
 			RAMPerVCPUGiB: types.Int64Value(int64(spec.RAMPerVCPUGiB)),
 			VRAMGB:        types.Int64Value(int64(spec.VRAMGB)),
 			VCPUOptions:   vcpuList,

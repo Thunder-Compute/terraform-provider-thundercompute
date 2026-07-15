@@ -12,7 +12,7 @@ type CreateInstanceRequest struct {
 	CPUCores   int    `json:"cpu_cores"`
 	DiskSizeGB int    `json:"disk_size_gb"`
 	GPUType    string `json:"gpu_type"`
-	Mode       string `json:"mode"`
+	Mode       string `json:"-"`
 	NumGPUs    int    `json:"num_gpus"`
 	Template   string `json:"template"`
 	PublicKey  string `json:"public_key,omitempty"`
@@ -60,10 +60,10 @@ type ModifyInstanceRequest struct {
 	CPUCores    *int    `json:"cpu_cores,omitempty"`
 	DiskSizeGB  *int    `json:"disk_size_gb,omitempty"`
 	GPUType     *string `json:"gpu_type,omitempty"`
-	Mode        *string `json:"mode,omitempty"`
+	Mode        *string `json:"-"`
 	NumGPUs     *int    `json:"num_gpus,omitempty"`
-	AddPorts    []int   `json:"add_ports,omitempty"`
-	RemovePorts []int   `json:"remove_ports,omitempty"`
+	AddPorts    []int   `json:"-"`
+	RemovePorts []int   `json:"-"`
 }
 
 type ModifyInstanceResponse struct {
@@ -73,6 +73,17 @@ type ModifyInstanceResponse struct {
 	Mode         *string `json:"mode,omitempty"`
 	NumGPUs      *int    `json:"num_gpus,omitempty"`
 	HTTPPorts    []int   `json:"http_ports,omitempty"`
+}
+
+type PortUpdateRequest struct {
+	AddPorts    []int `json:"add_ports,omitempty"`
+	RemovePorts []int `json:"remove_ports,omitempty"`
+}
+
+type PortUpdateResponse struct {
+	Identifier   string `json:"identifier"`
+	InstanceName string `json:"instance_name"`
+	HTTPPorts    []int  `json:"http_ports"`
 }
 
 type InstanceDeleteResponse struct {
@@ -94,7 +105,7 @@ type AddKeyToInstanceResponse struct {
 
 func (c *Client) CreateInstance(ctx context.Context, req CreateInstanceRequest) (*CreateInstanceResponse, error) {
 	var resp CreateInstanceResponse
-	if err := c.doRequest(ctx, "POST", "/instances/create", req, &resp); err != nil {
+	if err := c.doRequest(ctx, "POST", "/v1/instances/create", req, &resp); err != nil {
 		return nil, fmt.Errorf("creating instance: %w", err)
 	}
 	return &resp, nil
@@ -102,7 +113,7 @@ func (c *Client) CreateInstance(ctx context.Context, req CreateInstanceRequest) 
 
 func (c *Client) ListInstances(ctx context.Context) (map[string]InstanceListItem, error) {
 	var resp map[string]InstanceListItem
-	if err := c.doRequest(ctx, "GET", "/instances/list", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v1/instances/list", nil, &resp); err != nil {
 		return nil, fmt.Errorf("listing instances: %w", err)
 	}
 	return resp, nil
@@ -126,15 +137,23 @@ func (c *Client) GetInstanceByUUID(ctx context.Context, uuid string) (index stri
 
 func (c *Client) ModifyInstance(ctx context.Context, id string, req ModifyInstanceRequest) (*ModifyInstanceResponse, error) {
 	var resp ModifyInstanceResponse
-	if err := c.doRequest(ctx, "POST", "/instances/"+url.PathEscape(id)+"/modify", req, &resp); err != nil {
+	if err := c.doRequest(ctx, "POST", "/v1/instances/"+url.PathEscape(id)+"/modify", req, &resp); err != nil {
 		return nil, fmt.Errorf("modifying instance %s: %w", id, err)
+	}
+	return &resp, nil
+}
+
+func (c *Client) UpdateInstancePorts(ctx context.Context, id string, req PortUpdateRequest) (*PortUpdateResponse, error) {
+	var resp PortUpdateResponse
+	if err := c.doRequest(ctx, "PATCH", "/v1/instances/"+url.PathEscape(id)+"/ports", req, &resp); err != nil {
+		return nil, fmt.Errorf("updating ports for instance %s: %w", id, err)
 	}
 	return &resp, nil
 }
 
 func (c *Client) AddKeyToInstance(ctx context.Context, id string, req AddKeyToInstanceRequest) (*AddKeyToInstanceResponse, error) {
 	var resp AddKeyToInstanceResponse
-	if err := c.doRequest(ctx, "POST", "/instances/"+url.PathEscape(id)+"/add_key", req, &resp); err != nil {
+	if err := c.doRequest(ctx, "POST", "/v1/instances/"+url.PathEscape(id)+"/add_key", req, &resp); err != nil {
 		return nil, fmt.Errorf("adding key to instance %s: %w", id, err)
 	}
 	return &resp, nil
@@ -142,7 +161,7 @@ func (c *Client) AddKeyToInstance(ctx context.Context, id string, req AddKeyToIn
 
 func (c *Client) DeleteInstance(ctx context.Context, id string) error {
 	var resp InstanceDeleteResponse
-	if err := c.doRequest(ctx, "POST", "/instances/"+url.PathEscape(id)+"/delete", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "POST", "/v1/instances/"+url.PathEscape(id)+"/delete", nil, &resp); err != nil {
 		return fmt.Errorf("deleting instance %s: %w", id, err)
 	}
 	return nil

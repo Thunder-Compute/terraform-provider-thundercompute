@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"terraform-provider-thundercompute/internal/client"
@@ -127,6 +128,11 @@ func TestIsModifyDisabled(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "unsupported versions never use the old destructive trigger",
+			err:  fmt.Errorf("modifying instance 0: %w", &client.APIError{StatusCode: 400, ErrorType: "unsupported_instance_version"}),
+			want: false,
+		},
+		{
 			name: "non-API error",
 			err:  fmt.Errorf("network failure"),
 			want: false,
@@ -174,6 +180,18 @@ func TestInstanceKeyID(t *testing.T) {
 	id4 := instanceKeyID("def-456", "ssh-ed25519 AAAA... test@test")
 	if id == id4 {
 		t.Error("expected different IDs for different instances")
+	}
+}
+
+func TestInstanceKeyDeleteWarnsThatKeyRemainsAuthorized(t *testing.T) {
+	r := &InstanceKeyResource{}
+	var resp resource.DeleteResponse
+	r.Delete(context.Background(), resource.DeleteRequest{}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Delete() diagnostics: %v", resp.Diagnostics)
+	}
+	if resp.Diagnostics.WarningsCount() != 1 {
+		t.Fatalf("Delete() warnings = %d, want 1", resp.Diagnostics.WarningsCount())
 	}
 }
 

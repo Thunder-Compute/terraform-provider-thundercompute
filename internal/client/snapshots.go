@@ -16,16 +16,16 @@ type CreateSnapshotResponse struct {
 }
 
 type Snapshot struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Status           string `json:"status"`
-	CreatedAt        int64  `json:"createdAt"`
-	MinimumDiskSizeGB int   `json:"minimumDiskSizeGb"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Status            string `json:"status"`
+	CreatedAt         int64  `json:"createdAt"`
+	MinimumDiskSizeGB int    `json:"minimumDiskSizeGb"`
 }
 
 func (c *Client) CreateSnapshot(ctx context.Context, req CreateSnapshotRequest) (*CreateSnapshotResponse, error) {
 	var resp CreateSnapshotResponse
-	if err := c.doRequest(ctx, "POST", "/snapshots/create", req, &resp); err != nil {
+	if err := c.doRequest(ctx, "POST", "/v1/snapshots/create", req, &resp); err != nil {
 		return nil, fmt.Errorf("creating snapshot: %w", err)
 	}
 	return &resp, nil
@@ -33,7 +33,7 @@ func (c *Client) CreateSnapshot(ctx context.Context, req CreateSnapshotRequest) 
 
 func (c *Client) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 	var resp []Snapshot
-	if err := c.doRequest(ctx, "GET", "/snapshots/list", nil, &resp); err != nil {
+	if err := c.doRequest(ctx, "GET", "/v1/snapshots/list", nil, &resp); err != nil {
 		return nil, fmt.Errorf("listing snapshots: %w", err)
 	}
 	return resp, nil
@@ -68,7 +68,7 @@ func (c *Client) GetSnapshotByName(ctx context.Context, name string) (*Snapshot,
 }
 
 func (c *Client) DeleteSnapshot(ctx context.Context, id string) error {
-	if err := c.doRequest(ctx, "DELETE", "/snapshots/"+url.PathEscape(id), nil, nil); err != nil {
+	if err := c.doRequest(ctx, "DELETE", "/v1/snapshots/"+url.PathEscape(id), nil, nil); err != nil {
 		return fmt.Errorf("deleting snapshot %s: %w", id, err)
 	}
 	return nil
