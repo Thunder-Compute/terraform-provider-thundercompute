@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-func TestResolveInstanceMode(t *testing.T) {
+func TestResolveLegacyModeState(t *testing.T) {
 	tests := []struct {
 		name              string
 		configuredMode    string
@@ -55,6 +55,16 @@ func TestResolveInstanceMode(t *testing.T) {
 			wantWarning:       true,
 		},
 		{
+			name:              "derived config cannot rewrite conflicting legacy state",
+			configuredMode:    "prototyping",
+			configuredModeSet: true,
+			stateMode:         "production",
+			planGPUs:          1,
+			stateGPUs:         1,
+			hasState:          true,
+			wantError:         true,
+		},
+		{
 			name:        "preserved conflicting legacy state when mode omitted",
 			stateMode:   "production",
 			planGPUs:    1,
@@ -64,7 +74,7 @@ func TestResolveInstanceMode(t *testing.T) {
 			wantWarning: true,
 		},
 		{
-			name:      "GPU count transition refreshes derived mode",
+			name:      "GPU count transition refreshes compatibility value",
 			stateMode: "prototyping",
 			planGPUs:  4,
 			stateGPUs: 2,
@@ -80,7 +90,7 @@ func TestResolveInstanceMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotMode, warning, err := resolveInstanceMode(
+			gotMode, warning, err := resolveLegacyModeState(
 				tt.configuredMode,
 				tt.configuredModeSet,
 				tt.stateMode,
@@ -89,7 +99,7 @@ func TestResolveInstanceMode(t *testing.T) {
 				tt.hasState,
 			)
 			if (err != nil) != tt.wantError {
-				t.Fatalf("resolveInstanceMode() error = %v, wantError %t", err, tt.wantError)
+				t.Fatalf("resolveLegacyModeState() error = %v, wantError %t", err, tt.wantError)
 			}
 			if tt.wantError {
 				return
@@ -104,7 +114,7 @@ func TestResolveInstanceMode(t *testing.T) {
 	}
 }
 
-func TestInstanceModifyPlanDerivesAndValidatesMode(t *testing.T) {
+func TestInstanceModifyPlanMaintainsLegacyModeState(t *testing.T) {
 	ctx := context.Background()
 	r := &InstanceResource{}
 	var schemaResp resource.SchemaResponse
@@ -124,7 +134,7 @@ func TestInstanceModifyPlanDerivesAndValidatesMode(t *testing.T) {
 		wantError      bool
 	}{
 		{
-			name:           "omitted mode is derived",
+			name:           "omitted mode gets compatibility value",
 			configuredMode: nil,
 			planGPUs:       4,
 			planDisk:       100,
@@ -154,6 +164,16 @@ func TestInstanceModifyPlanDerivesAndValidatesMode(t *testing.T) {
 			stateDisk:      int64(100),
 			wantMode:       "production",
 			wantWarning:    true,
+		},
+		{
+			name:           "compatibility value cannot replace conflicting legacy state",
+			configuredMode: "prototyping",
+			planGPUs:       1,
+			stateMode:      "production",
+			stateGPUs:      int64(1),
+			planDisk:       100,
+			stateDisk:      int64(100),
+			wantError:      true,
 		},
 		{
 			name:           "disk decrease is rejected",
@@ -216,7 +236,7 @@ func TestInstanceModifyPlanDerivesAndValidatesMode(t *testing.T) {
 	}
 }
 
-func TestInstanceImportWarnsAboutDerivedMode(t *testing.T) {
+func TestInstanceImportWarnsAboutRemovedMode(t *testing.T) {
 	ctx := context.Background()
 	r := &InstanceResource{}
 	var schemaResp resource.SchemaResponse

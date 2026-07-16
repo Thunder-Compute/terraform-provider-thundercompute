@@ -24,7 +24,7 @@ Generate tokens at [console.thundercompute.com/settings/tokens](https://console.
 ### Optional
 
 - `api_token` (String, Sensitive) Thunder Compute API token. Can also be set via the TNR_API_TOKEN environment variable.
-- `api_url` (String) Thunder Compute API base URL. Defaults to https://api.thundercompute.com:8443/v1
+- `api_url` (String) Thunder Compute API root URL. Defaults to https://api.thundercompute.com:8443. Existing values ending in /v1 or /v2 are accepted and normalized to the same root.
 
 ## Example Usage
 

@@ -1,1 +1,1 @@
-terraform import thundercompute_snapshot.example <snapshot-id>
+terraform import thundercompute_snapshot.example <snapshot-id>,<instance-uuid>

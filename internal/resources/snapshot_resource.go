@@ -60,9 +60,9 @@ func (r *SnapshotResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			},
 			"instance_id": schema.StringAttribute{
 				Optional:    true,
-				Description: "UUID of the instance to snapshot. Required in configuration. Imports should use snapshot_id,instance_uuid because the snapshot list API does not return this value; legacy ID-only imports retain it as null.",
+				Description: "UUID of the instance to snapshot. Required in configuration. Imports should use snapshot_id,instance_uuid because the snapshot list API does not return this value; legacy ID-only imports hydrate it from configuration without replacing the snapshot.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					snapshotInstanceIDRequiresReplace(),
 				},
 			},
 			"name": schema.StringAttribute{
@@ -96,6 +96,17 @@ func (r *SnapshotResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			}),
 		},
 	}
+}
+
+func snapshotInstanceIDRequiresReplace() planmodifier.String {
+	const description = "Changing the instance UUID replaces the snapshot, except when hydrating a legacy ID-only import."
+	return stringplanmodifier.RequiresReplaceIf(
+		func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+			resp.RequiresReplace = !req.StateValue.IsNull()
+		},
+		description,
+		description,
+	)
 }
 
 func (r *SnapshotResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
@@ -226,7 +237,28 @@ func (r *SnapshotResource) Read(ctx context.Context, req resource.ReadRequest, r
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *SnapshotResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state SnapshotResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if state.InstanceID.IsNull() &&
+		!plan.InstanceID.IsNull() &&
+		!plan.InstanceID.IsUnknown() &&
+		strings.TrimSpace(plan.InstanceID.ValueString()) != "" &&
+		plan.Name.Equal(state.Name) {
+		// ID-only imports cannot recover the source instance from the API. Fill
+		// that one missing state value from configuration without touching the
+		// immutable remote snapshot.
+		state.InstanceID = plan.InstanceID
+		state.Timeouts = plan.Timeouts
+		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+		return
+	}
+
 	resp.Diagnostics.AddError("Error updating Thunder Compute snapshot",
 		"Snapshots are immutable. Any change triggers recreation.")
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
-func TestInstanceStateUpgradeV0PreservesOrDerivesMode(t *testing.T) {
+func TestInstanceStateUpgradeV0PreservesOrPopulatesLegacyMode(t *testing.T) {
 	ctx := context.Background()
 	r := &InstanceResource{}
 	var schemaResp resource.SchemaResponse
@@ -31,7 +31,7 @@ func TestInstanceStateUpgradeV0PreservesOrDerivesMode(t *testing.T) {
 		wantMode string
 	}{
 		{name: "preserves non-empty legacy mode", mode: stringPointer("production"), numGPUs: 1, wantMode: "production"},
-		{name: "derives missing mode", mode: nil, numGPUs: 4, wantMode: "production"},
+		{name: "populates missing compatibility value", mode: nil, numGPUs: 4, wantMode: "production"},
 	}
 
 	schemaType := schemaResp.Schema.Type().TerraformType(ctx)

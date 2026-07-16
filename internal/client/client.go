@@ -60,9 +60,9 @@ func NewClient(baseURL, apiToken, version string) *Client {
 		}
 		return retryablehttp.ErrorPropagatedRetryPolicy(ctx, resp, err)
 	}
-	// Preserve the final HTTP response so doRequest can decode its structured
-	// API error after safe-method retries are exhausted.
-	retryClient.ErrorHandler = retryablehttp.PassthroughErrorHandler
+	// Return the final HTTP response without a transport error so StandardClient
+	// does not discard the response before doRequest can decode its API error.
+	retryClient.ErrorHandler = finalResponseErrorHandler
 
 	return &Client{
 		baseURL:    baseURL,
@@ -80,6 +80,13 @@ func normalizeBaseURL(baseURL string) string {
 		}
 	}
 	return baseURL
+}
+
+func finalResponseErrorHandler(resp *http.Response, err error, _ int) (*http.Response, error) {
+	if resp != nil {
+		return resp, nil
+	}
+	return nil, err
 }
 
 // doRequest executes an authenticated API request.

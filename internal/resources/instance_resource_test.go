@@ -200,7 +200,7 @@ func TestInstanceResourcePlanValidation(t *testing.T) {
 	}{
 		{name: "mode omitted", attributes: ""},
 		{name: "matching mode", attributes: `mode = "prototyping"`},
-		{name: "conflicting mode", attributes: `mode = "production"`, expectError: "Mode conflicts with GPU count"},
+		{name: "obsolete mode", attributes: `mode = "production"`, expectError: "Obsolete mode configuration"},
 		{name: "invalid GPU count", numGPUs: 3, expectError: "1.*2.*4.*8"},
 		{name: "SSH port rejected", attributes: "http_ports = [22]", expectError: "22"},
 		{name: "out of range port rejected", attributes: "http_ports = [65536]", expectError: "65535"},

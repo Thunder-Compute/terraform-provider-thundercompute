@@ -5,7 +5,7 @@ Terraform provider for managing [Thunder Compute](https://thundercompute.com) GP
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://golang.org/doc/install) >= 1.26 (to build the provider)
+- [Go](https://golang.org/doc/install) >= 1.25 (to build the provider)
 
 ## Authentication
 
@@ -23,26 +23,12 @@ Generate tokens at [console.thundercompute.com/settings/tokens](https://console.
 make install
 ```
 
-This compiles the provider and places the binary into `~/.terraform.d/plugins/` under the `local` namespace.
+This compiles the provider and places the binary into `~/.terraform.d/plugins/` under the `Thunder-Compute` namespace.
 
-## Provider Address & Registry Publishing
-
-The provider address in `main.go` is currently set to:
+## Provider Address
 
 ```
-registry.terraform.io/local/thundercompute
-```
-
-The `local` namespace is for **local development only**. Before publishing to the Terraform Registry, update the address to your organization's namespace:
-
-```
-registry.terraform.io/<YOUR_GITHUB_ORG>/thundercompute
-```
-
-For example, if your GitHub organization is `thunder-compute`:
-
-```
-registry.terraform.io/thunder-compute/thundercompute
+registry.terraform.io/Thunder-Compute/thundercompute
 ```
 
 ## Release Workflow
@@ -51,7 +37,7 @@ Releases are built with [GoReleaser](https://goreleaser.com/) and published to G
 
 ### How it works
 
-1. Tag a version: `git tag v0.1.0 && git push origin v0.1.0`
+1. Update `VERSION`, then tag and push `v<VERSION>`.
 2. GoReleaser builds binaries, creates checksums, signs with GPG, and creates a **GitHub Release**.
 3. The release is created as a **published** (non-draft) release.
 4. If you have registered the provider with the [Terraform Registry](https://registry.terraform.io/), a webhook on the `release` event will automatically notify the registry of the new version.
@@ -67,9 +53,9 @@ Set `GPG_FINGERPRINT` environment variable to your GPG key fingerprint before ru
 
 ## API Usage
 
-This provider communicates with the Thunder Compute API at `https://api.thundercompute.com:8443/v1`. The HTTP client includes:
+This provider communicates with the Thunder Compute API at `https://api.thundercompute.com:8443`. Existing provider configurations ending in `/v1` or `/v2` are normalized to this API root. The HTTP client includes:
 
-- **Automatic retry** for transient failures (5xx errors, network issues) with exponential backoff (up to 3 retries).
+- **Automatic retry** for safe GET requests and idempotent port PATCH requests with exponential backoff (up to 3 retries).
 - **TLS 1.2 minimum** for transport security.
 - **Response size limit** of 10MB to prevent memory exhaustion.
 

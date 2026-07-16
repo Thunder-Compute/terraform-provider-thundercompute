@@ -158,6 +158,36 @@ func TestIsModifyDisabled(t *testing.T) {
 	}
 }
 
+func TestRequiresManualSnapshotRecreate(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "temporarily disabled contract requires manual recreation",
+			err:  &client.APIError{StatusCode: 400, ErrorType: "temporarily_disabled"},
+			want: true,
+		},
+		{
+			name: "unsupported instance version requires manual recreation",
+			err:  &client.APIError{StatusCode: 400, ErrorType: "unsupported_instance_version"},
+			want: true,
+		},
+		{
+			name: "other errors do not require recreation",
+			err:  &client.APIError{StatusCode: 500, ErrorType: "internal_error"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := requiresManualSnapshotRecreate(tt.err); got != tt.want {
+				t.Errorf("requiresManualSnapshotRecreate() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInstanceKeyID(t *testing.T) {
 	id := instanceKeyID("abc-123", "ssh-ed25519 AAAA... test@test")
 	if id == "" {

@@ -63,7 +63,7 @@ func TestDiscoveryDataSourcesUseCanonicalV2Contracts(t *testing.T) {
 			t.Errorf("ram_cap_gib = %d, want 96", spec.RAMCapGiB.ValueInt64())
 		}
 		if spec.Mode.ValueString() != "prototyping" {
-			t.Errorf("derived mode = %q, want prototyping", spec.Mode.ValueString())
+			t.Errorf("legacy mode compatibility value = %q, want prototyping", spec.Mode.ValueString())
 		}
 		if _, found := got.Specs["a6000_x1_prototyping"]; found {
 			t.Error("state unexpectedly contains legacy mode-suffixed key")
@@ -106,7 +106,7 @@ func TestDiscoveryDataSourcesUseCanonicalV2Contracts(t *testing.T) {
 		}
 	})
 
-	t.Run("instances retains list output and derives mode", func(t *testing.T) {
+	t.Run("instances retains list output and legacy compatibility", func(t *testing.T) {
 		d := &InstancesDataSource{client: c}
 		var schemaResp datasource.SchemaResponse
 		d.Schema(ctx, datasource.SchemaRequest{}, &schemaResp)
@@ -123,7 +123,7 @@ func TestDiscoveryDataSourcesUseCanonicalV2Contracts(t *testing.T) {
 			t.Fatalf("instances list length = %d, want 1", len(got.Instances))
 		}
 		if got.Instances[0].Mode.ValueString() != "production" {
-			t.Errorf("derived instance mode = %q, want production", got.Instances[0].Mode.ValueString())
+			t.Errorf("legacy mode compatibility value = %q, want production", got.Instances[0].Mode.ValueString())
 		}
 	})
 }

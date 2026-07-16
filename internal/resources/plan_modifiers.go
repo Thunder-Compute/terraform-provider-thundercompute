@@ -10,11 +10,13 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// configTriggerAttributes are user-configurable attributes whose change signals
-// that the snapshot fallback may recreate the instance, changing all computed fields.
+// configTriggerAttributes are user-configurable attributes whose change may
+// change computed instance fields either through update or replacement.
 var configTriggerAttributes = []string{
-	"cpu_cores", "disk_size_gb", "gpu_type", "mode", "num_gpus", "http_ports",
+	"cpu_cores", "disk_size_gb", "gpu_type", "mode", "num_gpus", "http_ports", "template", "public_key",
 }
+
+var instanceReplacementTriggerAttributes = []string{"template", "public_key"}
 
 // --- String ---
 
@@ -25,7 +27,7 @@ func UnknownStringOnConfigChange() planmodifier.String {
 }
 
 func (m unknownStringOnConfigChange) Description(_ context.Context) string {
-	return "Marks value as unknown when configurable instance attributes change (snapshot fallback may create a new instance)."
+	return "Marks value as unknown when configurable instance attributes change."
 }
 
 func (m unknownStringOnConfigChange) MarkdownDescription(ctx context.Context) string {
@@ -41,6 +43,31 @@ func (m unknownStringOnConfigChange) PlanModifyString(ctx context.Context, req p
 		return
 	}
 	resp.PlanValue = types.StringUnknown()
+}
+
+type unknownStringOnInstanceReplacement struct{}
+
+func UnknownStringOnInstanceReplacement() planmodifier.String {
+	return unknownStringOnInstanceReplacement{}
+}
+
+func (m unknownStringOnInstanceReplacement) Description(_ context.Context) string {
+	return "Preserves the instance identity for in-place updates and marks it unknown when the instance is replaced."
+}
+
+func (m unknownStringOnInstanceReplacement) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (m unknownStringOnInstanceReplacement) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	if anyAttributesChanged(ctx, req.Plan, req.State, instanceReplacementTriggerAttributes) {
+		resp.PlanValue = types.StringUnknown()
+		return
+	}
+	resp.PlanValue = req.StateValue
 }
 
 // --- Int64 ---
@@ -103,7 +130,11 @@ func (m unknownListOnConfigChange) PlanModifyList(ctx context.Context, req planm
 // This is the expected behavior per the plugin framework -- plan modifiers should
 // not emit diagnostics from attribute lookups that may not exist in all contexts.
 func anyConfigAttrChanged(ctx context.Context, plan tfsdk.Plan, state tfsdk.State) bool {
-	for _, attrName := range configTriggerAttributes {
+	return anyAttributesChanged(ctx, plan, state, configTriggerAttributes)
+}
+
+func anyAttributesChanged(ctx context.Context, plan tfsdk.Plan, state tfsdk.State, attributes []string) bool {
+	for _, attrName := range attributes {
 		var planVal, stateVal attr.Value
 		pDiags := plan.GetAttribute(ctx, path.Root(attrName), &planVal)
 		sDiags := state.GetAttribute(ctx, path.Root(attrName), &stateVal)

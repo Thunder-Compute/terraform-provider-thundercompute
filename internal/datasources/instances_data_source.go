@@ -61,8 +61,8 @@ func (d *InstancesDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 						"gpu_type": schema.StringAttribute{Computed: true, Description: "GPU type."},
 						"mode": schema.StringAttribute{
 							Computed:           true,
-							Description:        "Deprecated route hint derived from num_gpus. It may be inaccurate for off-route legacy instances.",
-							DeprecationMessage: "mode is not returned by the public API and is derived from num_gpus for one migration cycle.",
+							Description:        "Deprecated compatibility-only field. Instance mode no longer exists in the Thunder Compute API; do not use this value.",
+							DeprecationMessage: "mode no longer exists in the Thunder Compute API and will be removed after the v0.2 migration cycle.",
 						},
 						"template":   schema.StringAttribute{Computed: true, Description: "OS template or snapshot name."},
 						"cpu_cores":  schema.Int64Attribute{Computed: true, Description: "Number of vCPU cores."},
@@ -117,7 +117,7 @@ func (d *InstancesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 			Name:      types.StringValue(inst.Name),
 			Status:    types.StringValue(inst.Status),
 			GPUType:   types.StringValue(inst.GPUType),
-			Mode:      derivedModeValue(numGPUs),
+			Mode:      legacyModeCompatibilityValue(numGPUs),
 			Template:  types.StringValue(inst.Template),
 			CPUCores:  types.Int64Value(parseIntOr(inst.CPUCores, 0)),
 			NumGPUs:   types.Int64Value(numGPUs),
@@ -132,7 +132,7 @@ func (d *InstancesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
-func derivedModeValue(numGPUs int64) types.String {
+func legacyModeCompatibilityValue(numGPUs int64) types.String {
 	switch numGPUs {
 	case 1, 2:
 		return types.StringValue("prototyping")

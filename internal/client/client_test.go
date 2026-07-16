@@ -214,6 +214,32 @@ func TestDoRequest_RetriesOnlySafeMethods(t *testing.T) {
 	}
 }
 
+func TestDoRequest_RetryExhaustionReturnsAPIError(t *testing.T) {
+	attempts := 0
+	srv, c := newRetryTestServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(APIError{
+			StatusCode: http.StatusServiceUnavailable,
+			ErrorType:  "temporarily_unavailable",
+			Message:    "try again later",
+		})
+	}))
+	defer srv.Close()
+
+	err := c.doRequest(context.Background(), http.MethodGet, "/retry-exhausted", nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError after retry exhaustion, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable || apiErr.ErrorType != "temporarily_unavailable" || apiErr.Message != "try again later" {
+		t.Errorf("APIError = %#v, want structured final response", apiErr)
+	}
+	if attempts != 3 {
+		t.Errorf("attempts = %d, want 3", attempts)
+	}
+}
+
 // --- Error classification tests ---
 
 func TestDoRequest_APIError(t *testing.T) {

@@ -100,8 +100,8 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			"mode": schema.StringAttribute{
 				Optional:           true,
 				Computed:           true,
-				DeprecationMessage: "mode is derived from num_gpus and is retained only for v0.1.0 state compatibility. Remove it from configuration.",
-				Description:        "Deprecated compatibility value derived from num_gpus. It may preserve a legacy route that the public API cannot report.",
+				DeprecationMessage: "mode no longer exists in the Thunder Compute API and is retained only for v0.1.0 state compatibility. Remove it from configuration.",
+				Description:        "Deprecated compatibility-only field for v0.1.0 state. Instance mode no longer exists and this value is not sent to the API.",
 				Validators: []validator.String{
 					stringvalidator.OneOf("prototyping", "production"),
 				},
@@ -163,7 +163,7 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				Computed:    true,
 				Description: "Instance UUID (Terraform resource ID).",
 				PlanModifiers: []planmodifier.String{
-					UnknownStringOnConfigChange(),
+					UnknownStringOnInstanceReplacement(),
 				},
 			},
 			"identifier": schema.Int64Attribute{
@@ -279,7 +279,7 @@ func (r *InstanceResource) UpgradeState(ctx context.Context) map[int64]resource.
 					}
 					numGPUs, _ := numGPUsValue.Int64()
 					var ok bool
-					mode, ok = instanceModeForGPUCount(numGPUs)
+					mode, ok = legacyModeCompatibilityForGPUCount(numGPUs)
 					if !ok {
 						resp.Diagnostics.AddError("Unable to upgrade instance state", fmt.Sprintf("num_gpus must be one of 1, 2, 4, or 8; got %d", numGPUs))
 						return
@@ -298,7 +298,7 @@ func (r *InstanceResource) UpgradeState(ctx context.Context) map[int64]resource.
 	}
 }
 
-func instanceModeForGPUCount(numGPUs int64) (string, bool) {
+func legacyModeCompatibilityForGPUCount(numGPUs int64) (string, bool) {
 	switch numGPUs {
 	case 1, 2:
 		return "prototyping", true
@@ -309,30 +309,33 @@ func instanceModeForGPUCount(numGPUs int64) (string, bool) {
 	}
 }
 
-func resolveInstanceMode(configuredMode string, configuredModeSet bool, stateMode string, planGPUs, stateGPUs int64, hasState bool) (string, string, error) {
-	derivedMode, ok := instanceModeForGPUCount(planGPUs)
+func resolveLegacyModeState(configuredMode string, configuredModeSet bool, stateMode string, planGPUs, stateGPUs int64, hasState bool) (string, string, error) {
+	compatibilityMode, ok := legacyModeCompatibilityForGPUCount(planGPUs)
 	if !ok {
 		return "", "", fmt.Errorf("num_gpus must be one of 1, 2, 4, or 8; got %d", planGPUs)
 	}
 
 	if !configuredModeSet {
 		if hasState && planGPUs == stateGPUs && stateMode != "" {
-			if stateMode != derivedMode {
-				return stateMode, "The existing instance carries a legacy mode that conflicts with the route now derived from num_gpus. Terraform will preserve that value while num_gpus is unchanged; remove mode from configuration and recreate the instance manually if you want to move routes.", nil
+			if stateMode != compatibilityMode {
+				return stateMode, "The existing Terraform state contains a legacy mode value from v0.1.0. The provider will preserve this compatibility-only value to avoid changing the instance. Remove mode from configuration; recreate the instance manually only if you need to replace it.", nil
 			}
 			return stateMode, "", nil
 		}
-		return derivedMode, "", nil
+		return compatibilityMode, "", nil
 	}
 
-	if configuredMode == derivedMode {
+	if configuredMode == compatibilityMode {
+		if hasState && planGPUs == stateGPUs && stateMode != "" && stateMode != compatibilityMode {
+			return "", "", fmt.Errorf("mode %q no longer configures Thunder Compute instances, and this existing resource has a different v0.1.0 compatibility value %q; remove mode from configuration to preserve the instance or recreate it manually", configuredMode, stateMode)
+		}
 		return configuredMode, "", nil
 	}
 	if hasState && planGPUs == stateGPUs && configuredMode == stateMode {
-		return configuredMode, "The configured mode conflicts with num_gpus, but it matches this instance's preserved v0.1.0 state. Terraform will retain the legacy value without replacing or modifying the instance. Remove mode from configuration for future compatibility.", nil
+		return configuredMode, "Mode no longer configures Thunder Compute instances. Terraform will retain this v0.1.0 compatibility value without replacing or modifying the instance. Remove mode from configuration for future compatibility.", nil
 	}
 
-	return "", "", fmt.Errorf("mode %q conflicts with num_gpus = %d, which uses %q mode", configuredMode, planGPUs, derivedMode)
+	return "", "", fmt.Errorf("mode %q no longer configures Thunder Compute instances; remove mode from configuration", configuredMode)
 }
 
 func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
@@ -374,7 +377,7 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 		return
 	}
 	configuredModeSet := !configuredMode.IsNull() && !configuredMode.IsUnknown()
-	mode, warning, err := resolveInstanceMode(
+	mode, warning, err := resolveLegacyModeState(
 		configuredMode.ValueString(),
 		configuredModeSet,
 		stateMode.ValueString(),
@@ -383,7 +386,7 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 		hasState,
 	)
 	if err != nil {
-		resp.Diagnostics.AddAttributeError(path.Root("mode"), "Mode conflicts with GPU count", err.Error())
+		resp.Diagnostics.AddAttributeError(path.Root("mode"), "Obsolete mode configuration", err.Error())
 		return
 	}
 	if warning != "" {
@@ -679,8 +682,8 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 	resp.Diagnostics.AddWarning(
-		"Instance mode will be derived",
-		"The public API does not report an instance's historical route. During refresh Terraform will derive mode from num_gpus; this may be inaccurate for an imported off-route legacy instance.",
+		"Instance mode has been removed",
+		"The Thunder Compute API no longer has an instance mode. During refresh Terraform will populate a compatibility-only value for v0.1.0 state; do not add mode to configuration.",
 	)
 }
 
@@ -698,6 +701,8 @@ func requiresManualSnapshotRecreate(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return false
 	}
+	// The legacy modify API used temporarily_disabled for an explicit contract
+	// that instructed callers to snapshot and recreate, not for a retryable 5xx.
 	return isModifyDisabled(err) || apiErr.ErrorType == "unsupported_instance_version"
 }
 
@@ -882,12 +887,12 @@ func (r *InstanceResource) populateInstanceModel(ctx context.Context, index stri
 		model.GPUType = types.StringValue(normalizeGPUType(item.GPUType))
 	}
 	if model.Mode.IsNull() || model.Mode.IsUnknown() || model.Mode.ValueString() == "" {
-		mode, ok := instanceModeForGPUCount(parseIntOrZero(ctx, item.NumGPUs))
+		mode, ok := legacyModeCompatibilityForGPUCount(parseIntOrZero(ctx, item.NumGPUs))
 		if !ok {
-			diags.AddError("Unable to derive instance mode", fmt.Sprintf("Instance %s returned unsupported num_gpus %q.", item.UUID, item.NumGPUs))
+			diags.AddError("Unable to populate legacy mode compatibility", fmt.Sprintf("Instance %s returned num_gpus %q, which cannot be represented in v0.1.0 compatibility state.", item.UUID, item.NumGPUs))
 			return
 		}
-		diags.AddWarning("Instance mode was derived", "The API does not report an instance's historical route. Terraform derived mode from num_gpus; this may be inaccurate for an imported off-route legacy instance.")
+		diags.AddWarning("Instance mode has been removed", "The Thunder Compute API no longer has an instance mode. Terraform populated a compatibility-only value for v0.1.0 state; do not add mode to configuration.")
 		model.Mode = types.StringValue(mode)
 	}
 	// Preserve the configured template value because it is replace-only and the
