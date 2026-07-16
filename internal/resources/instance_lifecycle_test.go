@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"terraform-provider-thundercompute/internal/client"
 )
@@ -116,6 +117,71 @@ func TestInstanceCreateRetainsUUIDAcrossVisibilityLagAndPatchesPorts(t *testing.
 	}
 	if portPatchCalls != 1 {
 		t.Errorf("port PATCH calls = %d, want 1", portPatchCalls)
+	}
+}
+
+func TestInstanceCreatePartialStateContainsNoUnknownValues(t *testing.T) {
+	ctx := context.Background()
+	createCalls := 0
+	mux := http.NewServeMux()
+	registerInstancePreflightFixtures(t, mux)
+	mux.HandleFunc("/v1/instances/create", func(w http.ResponseWriter, _ *http.Request) {
+		createCalls++
+		writeResourceJSON(t, w, map[string]interface{}{
+			"identifier": 7,
+			"uuid":       "instance-uuid",
+			"key":        "private-key-material",
+		})
+	})
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		writeResourceJSON(t, w, map[string]interface{}{
+			"error":   "not_found",
+			"message": "instance list temporarily unavailable",
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	configValues := map[string]interface{}{
+		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
+		"http_ports": nil, "allow_snapshot_modify": false,
+	}
+	planValues := cloneInterfaceMap(configValues)
+	for _, name := range []string{
+		"id", "identifier", "generated_key", "status", "ip", "port", "name",
+		"memory", "created_at", "ssh_public_keys", "http_ports",
+	} {
+		planValues[name] = tftypes.UnknownValue
+	}
+	configRaw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), configValues)
+	planRaw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), planValues)
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{
+		Config: tfsdk.Config{Raw: configRaw, Schema: s},
+		Plan:   tfsdk.Plan{Raw: planRaw, Schema: s},
+	}, &resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("Create() returned no error after the post-create instance lookup failed")
+	}
+	if createCalls != 1 {
+		t.Fatalf("instance create calls = %d, want 1", createCalls)
+	}
+	if !resp.State.Raw.IsFullyKnown() {
+		t.Errorf("partial create state contains unknown values: %s", resp.State.Raw)
+	}
+	var gotID types.String
+	if diags := resp.State.GetAttribute(ctx, path.Root("id"), &gotID); diags.HasError() {
+		t.Fatalf("reading partial create ID: %v", diags)
+	}
+	if gotID.ValueString() != "instance-uuid" {
+		t.Errorf("partial create ID = %q, want instance-uuid", gotID.ValueString())
 	}
 }
 
@@ -457,6 +523,36 @@ func TestValidateInstanceConfigurationUsesPublicSpecs(t *testing.T) {
 				t.Errorf("validateInstanceConfiguration() error = %v, wantError %t", err, tt.wantError)
 			}
 		})
+	}
+}
+
+func TestValidateInstanceConfigurationAllowsUnchangedOversizedDiskOnUpdate(t *testing.T) {
+	ctx := context.Background()
+	mux := http.NewServeMux()
+	registerInstancePreflightFixtures(t, mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
+
+	previous := &InstanceResourceModel{
+		GPUType:    types.StringValue("L40"),
+		NumGPUs:    types.Int64Value(1),
+		DiskSizeGB: types.Int64Value(250),
+	}
+	model := &InstanceResourceModel{
+		GPUType:    types.StringValue("A6000"),
+		NumGPUs:    types.Int64Value(1),
+		CPUCores:   types.Int64Value(4),
+		DiskSizeGB: types.Int64Value(250),
+		Template:   types.StringValue("snapshot-name"),
+	}
+	if err := r.validateInstanceConfiguration(ctx, model, previous); err != nil {
+		t.Fatalf("validateInstanceConfiguration() rejected unchanged oversized disk: %v", err)
+	}
+
+	model.DiskSizeGB = types.Int64Value(251)
+	if err := r.validateInstanceConfiguration(ctx, model, previous); err == nil {
+		t.Fatal("validateInstanceConfiguration() allowed oversized disk growth")
 	}
 }
 

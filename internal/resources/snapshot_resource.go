@@ -312,5 +312,5 @@ func isAmbiguousSnapshotCreateError(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return true
 	}
-	return apiErr.StatusCode == 408 || apiErr.StatusCode == 429 || apiErr.StatusCode >= 500
+	return apiErr.StatusCode == 408 || apiErr.StatusCode >= 500
 }

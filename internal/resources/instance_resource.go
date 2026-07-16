@@ -454,6 +454,7 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	plan.ID = types.StringValue(createResp.UUID)
 	plan.Identifier = types.Int64Value(int64(createResp.Identifier))
 	plan.GeneratedKey = types.StringValue(createResp.Key)
+	materializePendingInstanceState(&plan)
 
 	// Persist the response identity before any eventually-consistent list call. If
 	// a later wait or port reconciliation fails, Terraform still tracks the
@@ -497,6 +498,33 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+// materializePendingInstanceState replaces server-computed unknowns with nulls
+// until the first list response can populate them. Terraform cannot persist
+// unknown values after Create returns, including when a later readiness check
+// fails and this partial state is the only record of the created instance.
+func materializePendingInstanceState(model *InstanceResourceModel) {
+	for _, value := range []*types.String{
+		&model.Status,
+		&model.IP,
+		&model.Name,
+		&model.Memory,
+		&model.CreatedAt,
+	} {
+		if value.IsUnknown() {
+			*value = types.StringNull()
+		}
+	}
+	if model.Port.IsUnknown() {
+		model.Port = types.Int64Null()
+	}
+	if model.SSHPublicKeys.IsUnknown() {
+		model.SSHPublicKeys = types.ListNull(types.StringType)
+	}
+	if model.HTTPPorts.IsUnknown() {
+		model.HTTPPorts = types.SetNull(types.Int64Type)
+	}
 }
 
 func (r *InstanceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -755,8 +783,9 @@ func (r *InstanceResource) validateInstanceConfiguration(ctx context.Context, mo
 	}
 
 	diskSize := int(model.DiskSizeGB.ValueInt64())
+	diskChanged := previous != nil && model.DiskSizeGB.ValueInt64() != previous.DiskSizeGB.ValueInt64()
 	validateStorage := previous == nil ||
-		model.DiskSizeGB.ValueInt64() != previous.DiskSizeGB.ValueInt64() ||
+		diskChanged ||
 		normalizeGPUType(model.GPUType.ValueString()) != normalizeGPUType(previous.GPUType.ValueString()) ||
 		model.NumGPUs.ValueInt64() != previous.NumGPUs.ValueInt64()
 	if !validateStorage {
@@ -768,8 +797,15 @@ func (r *InstanceResource) validateInstanceConfiguration(ctx context.Context, mo
 	if diskSize < spec.StorageGB.Min {
 		return fmt.Errorf("disk_size_gb = %d is below the %s minimum of %d GB", diskSize, configurationKey, spec.StorageGB.Min)
 	}
-	if diskSize > spec.StorageGB.Max && (previous != nil || snapshotMinimum == 0 || diskSize > snapshotMinimum) {
-		return fmt.Errorf("disk_size_gb = %d exceeds the %s maximum of %d GB", diskSize, configurationKey, spec.StorageGB.Max)
+	if diskSize > spec.StorageGB.Max {
+		snapshotExpandedCreate := previous == nil && snapshotMinimum > 0 && diskSize <= snapshotMinimum
+		// Snapshot provenance only exists in API state. Defer an unchanged disk to
+		// the modify endpoint, which permits snapshot-restored disks above max and
+		// rejects non-snapshot instances using its authoritative provenance.
+		unchangedExistingDisk := previous != nil && !diskChanged
+		if !snapshotExpandedCreate && !unchangedExistingDisk {
+			return fmt.Errorf("disk_size_gb = %d exceeds the %s maximum of %d GB", diskSize, configurationKey, spec.StorageGB.Max)
+		}
 	}
 	return nil
 }

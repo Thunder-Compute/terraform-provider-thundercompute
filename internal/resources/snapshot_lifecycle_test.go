@@ -76,6 +76,61 @@ func TestSnapshotCreateRecoversIdentityAfterAmbiguousResponse(t *testing.T) {
 	}
 }
 
+func TestSnapshotCreateReturnsRateLimitWithoutRecoveryPolling(t *testing.T) {
+	ctx := context.Background()
+	listCalls := 0
+	createCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/snapshots/list", func(w http.ResponseWriter, _ *http.Request) {
+		listCalls++
+		if listCalls == 1 {
+			writeResourceJSON(t, w, []interface{}{})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		writeResourceJSON(t, w, map[string]interface{}{
+			"error":   "not_found",
+			"message": "unexpected recovery poll",
+		})
+	})
+	mux.HandleFunc("/v1/snapshots/create", func(w http.ResponseWriter, _ *http.Request) {
+		createCalls++
+		w.WriteHeader(http.StatusTooManyRequests)
+		writeResourceJSON(t, w, map[string]interface{}{
+			"error":   "rate_limit_exceeded",
+			"message": "Too many requests. Please try again later.",
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &SnapshotResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
+		"instance_id": "instance-uuid", "name": "snapshot-name",
+	})
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{
+		Config: tfsdk.Config{Raw: raw, Schema: s},
+		Plan:   tfsdk.Plan{Raw: raw, Schema: s},
+	}, &resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("Create() returned no error for a rate-limited snapshot request")
+	}
+	if resp.Diagnostics.WarningsCount() != 0 {
+		t.Errorf("Create() treated a rate limit as ambiguous: %v", resp.Diagnostics)
+	}
+	if createCalls != 1 {
+		t.Errorf("snapshot create calls = %d, want 1", createCalls)
+	}
+	if listCalls != 1 {
+		t.Errorf("snapshot list calls = %d, want only the pre-create uniqueness check", listCalls)
+	}
+}
+
 func TestSnapshotCreatePersistsFailedSnapshotIdentity(t *testing.T) {
 	ctx := context.Background()
 	listCalls := 0
