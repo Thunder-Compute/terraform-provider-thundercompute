@@ -1,0 +1,9 @@
+common --enable_bzlmod
+
+build --workspace_status_command=terraform/scripts/workspace_status.sh
+build --stamp
+build --incompatible_strict_action_env
+test --incompatible_strict_action_env
+
+build --action_env=PATH=/usr/bin:/bin:/usr/local/bin
+build --action_env=HOME

@@ -1,4 +1,4 @@
-terraform-provider-thundercompute
+terraform-provider-thundercompute_v*
 dist/
 .DS_Store
 *.swp

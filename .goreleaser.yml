@@ -1,8 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/goreleaser/goreleaser/v2.17.0/www/docs/static/schema.json
 version: 2
 
-before:
-  hooks:
-    - go mod tidy
+project_name: terraform-provider-thundercompute
 
 builds:
   - env:
@@ -36,7 +35,7 @@ archives:
 
 checksum:
   extra_files:
-    - glob: "terraform-registry-manifest.json"
+    - glob: terraform-registry-manifest.json
       name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
   name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
   algorithm: sha256
@@ -44,21 +43,21 @@ checksum:
 signs:
   - artifacts: checksum
     args:
-      - "--batch"
-      - "--local-user"
+      - --batch
+      - --local-user
       - "{{ .Env.GPG_FINGERPRINT }}"
-      - "--output"
-      - "${signature}"
-      - "--detach-sign"
-      - "${artifact}"
+      - --output
+      - ${signature}
+      - --detach-sign
+      - ${artifact}
 
 release:
   github:
     owner: Thunder-Compute
     name: terraform-provider-thundercompute
   extra_files:
-    - glob: "terraform-registry-manifest.json"
+    - glob: terraform-registry-manifest.json
       name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
 
-changelog:
-  disable: true
+snapshot:
+  version_template: "{{ .Version }}"

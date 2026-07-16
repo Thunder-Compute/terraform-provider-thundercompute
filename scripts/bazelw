@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=bazel_functions.sh
+source "$script_dir/bazel_functions.sh"
+
+terraform_bazel_workspace_init "${TERRAFORM_FORCE_STANDALONE_BAZEL:-0}"
+trap terraform_bazel_workspace_cleanup EXIT
+terraform_bazel "$@"
+if [[ -n ${TERRAFORM_BAZEL_LOCK_OUTPUT:-} && -f "$TERRAFORM_BAZEL_WORKSPACE/MODULE.bazel.lock" ]]; then
+    cp "$TERRAFORM_BAZEL_WORKSPACE/MODULE.bazel.lock" "$TERRAFORM_BAZEL_LOCK_OUTPUT"
+fi

@@ -27,5 +27,24 @@ go_library(
 go_binary(
     name = "terraform",
     embed = [":terraform-provider-thundercompute_lib"],
+    gc_linkopts = [
+        "-s",
+        "-w",
+    ],
+    pure = "on",
     visibility = ["//visibility:public"],
+    x_defs = {"terraform-provider-thundercompute.version": "{STABLE_TERRAFORM_VERSION}"},
+)
+
+sh_test(
+    name = "version_test",
+    srcs = ["scripts/version_test.sh"],
+    args = [
+        "$(location :terraform)",
+        "$(location VERSION)",
+    ],
+    data = [
+        ":terraform",
+        "VERSION",
+    ],
 )
