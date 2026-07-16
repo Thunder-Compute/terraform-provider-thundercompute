@@ -115,7 +115,7 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			},
 			"public_key": schema.StringAttribute{
 				Optional:    true,
-				Description: "SSH public key to inject at creation time.",
+				Description: "SSH public key to inject at creation time. Prefer a user-supplied key so Terraform does not need to retain an auto-generated private key in state.",
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(
 						regexp.MustCompile(`^$|^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)[ \t]+\S{11,}(?:[ \t]+[^\r\n]*)?[\r\n]*$`),
@@ -130,7 +130,7 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				Optional:    true,
 				Computed:    true,
 				ElementType: types.Int64Type,
-				Description: "Set of HTTP ports to expose publicly via thundercompute.net.",
+				Description: "Set of HTTP ports to expose publicly via thundercompute.net. Omitted or null adopts template, snapshot, or server defaults; an explicit empty set reconciles to no HTTP ports; a non-empty set reconciles exactly.",
 				Validators: []validator.Set{
 					setvalidator.ValueInt64sAre(
 						int64validator.Between(1, 65535),
@@ -155,7 +155,7 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			"generated_key": schema.StringAttribute{
 				Computed:    true,
 				Sensitive:   true,
-				Description: "Auto-generated SSH private key (only populated on creation if no public_key was provided).",
+				Description: "Auto-generated SSH private key, populated on creation when no public_key was provided. Sensitive values remain stored in Terraform state; use encrypted remote state with restricted access.",
 				PlanModifiers: []planmodifier.String{
 					UnknownStringOnConfigChange(),
 				},

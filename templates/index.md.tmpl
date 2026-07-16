@@ -8,6 +8,8 @@ description: |-
 
 The Thunder Compute provider manages GPU instances, SSH keys, and snapshots on the [Thunder Compute](https://thundercompute.com) platform.
 
+Use the Registry source `Thunder-Compute/thundercompute`. Existing users should read the [v0.1.0 to v0.2.0 migration guide](guides/version-0.2-migration.md) before upgrading state.
+
 ## Authentication
 
 Set the `TNR_API_TOKEN` environment variable or configure the `api_token` attribute directly:
@@ -17,6 +19,8 @@ export TNR_API_TOKEN="your-api-token"
 ```
 
 Generate tokens at [console.thundercompute.com/settings/tokens](https://console.thundercompute.com/settings/tokens).
+
+Sensitive attributes are redacted from normal CLI output but remain in Terraform state. Use encrypted remote state with restricted access and prefer user-supplied SSH public keys.
 
 {{ .SchemaMarkdown | trimspace }}
 

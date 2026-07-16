@@ -1,5 +1,5 @@
 resource "thundercompute_instance" "training" {
-  gpu_type     = "H100"
+  gpu_type     = "h100"
   template     = "base"
   cpu_cores    = 4
   disk_size_gb = 200

@@ -42,7 +42,7 @@ func (d *GPUSpecsDataSource) Metadata(_ context.Context, req datasource.Metadata
 
 func (d *GPUSpecsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Retrieves GPU specifications for all available Thunder Compute GPU types.",
+		Description: "Retrieves GPU specifications keyed by canonical v2 GPU/count identifiers such as h100_x1.",
 		Attributes: map[string]schema.Attribute{
 			"specs": schema.MapNestedAttribute{
 				Computed: true,
