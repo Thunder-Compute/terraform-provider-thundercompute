@@ -448,7 +448,7 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 		GPUType:    normalizeGPUType(plan.GPUType.ValueString()),
 		NumGPUs:    int(plan.NumGPUs.ValueInt64()),
 		Template:   plan.Template.ValueString(),
-		PublicKey:  plan.PublicKey.ValueString(),
+		PublicKey:  strings.TrimSpace(plan.PublicKey.ValueString()),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Thunder Compute instance", err.Error())
@@ -930,6 +930,17 @@ func (r *InstanceResource) getInstanceByUUIDConfirmingAbsence(ctx context.Contex
 	if err != nil || item != nil {
 		return index, item, err
 	}
+
+	// Separate the confirmation lookup from the initial miss. Back-to-back reads
+	// can observe the same stale list response and incorrectly remove a live
+	// instance from state.
+	timer := time.NewTimer(instancePollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return "", nil, ctx.Err()
+	case <-timer.C:
+	}
 	return r.client.GetInstanceByUUID(ctx, uuid)
 }
 
@@ -966,9 +977,15 @@ func (r *InstanceResource) populateInstanceModel(ctx context.Context, index stri
 	model.NumGPUs = types.Int64Value(parseIntOrZero(ctx, item.NumGPUs))
 	model.DiskSizeGB = types.Int64Value(int64(item.Storage))
 
-	setValue, d := types.SetValueFrom(ctx, types.Int64Type, intsToInt64s(item.HTTPPorts))
-	diags.Append(d...)
-	model.HTTPPorts = setValue
+	if len(item.HTTPPorts) == 0 && (model.HTTPPorts.IsNull() || model.HTTPPorts.IsUnknown()) {
+		// Preserve the distinction between omitted ports and an explicit empty set.
+		// Both produce no API ports, but only the omitted form should remain null.
+		model.HTTPPorts = types.SetNull(types.Int64Type)
+	} else {
+		setValue, d := types.SetValueFrom(ctx, types.Int64Type, intsToInt64s(item.HTTPPorts))
+		diags.Append(d...)
+		model.HTTPPorts = setValue
+	}
 
 	if len(item.SSHPublicKeys) > 0 {
 		listValue, d := types.ListValueFrom(ctx, types.StringType, item.SSHPublicKeys)

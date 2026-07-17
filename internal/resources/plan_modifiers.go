@@ -13,7 +13,7 @@ import (
 // configTriggerAttributes are user-configurable attributes whose change may
 // change computed instance fields either through update or replacement.
 var configTriggerAttributes = []string{
-	"cpu_cores", "disk_size_gb", "gpu_type", "mode", "num_gpus", "http_ports", "template", "public_key",
+	"cpu_cores", "disk_size_gb", "gpu_type", "num_gpus", "http_ports", "template", "public_key",
 }
 
 var instanceReplacementTriggerAttributes = []string{"template", "public_key"}

@@ -44,7 +44,7 @@ func TestConfigTriggerAttributes_NotEmpty(t *testing.T) {
 	}
 	expected := map[string]bool{
 		"cpu_cores": true, "disk_size_gb": true, "gpu_type": true,
-		"mode": true, "num_gpus": true, "http_ports": true,
+		"num_gpus": true, "http_ports": true,
 		"template": true, "public_key": true,
 	}
 	if len(configTriggerAttributes) != len(expected) {

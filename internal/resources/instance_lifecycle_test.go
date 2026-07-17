@@ -19,6 +19,8 @@ import (
 )
 
 func TestInstanceCreateRetainsUUIDAcrossVisibilityLagAndPatchesPorts(t *testing.T) {
+	const publicKeyWithNewline = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1lnJOg4gHI9wg++M9T2SqaDMb8dw7ClZcKSAin/Pav user@example.com\n"
+
 	ctx := context.Background()
 	originalPollInterval := instancePollInterval
 	instancePollInterval = time.Millisecond
@@ -38,6 +40,9 @@ func TestInstanceCreateRetainsUUIDAcrossVisibilityLagAndPatchesPorts(t *testing.
 		}
 		if _, ok := body["mode"]; ok {
 			t.Error("create body unexpectedly contains mode")
+		}
+		if got := body["public_key"]; got != strings.TrimSpace(publicKeyWithNewline) {
+			t.Errorf("create public_key = %q, want trimmed key", got)
 		}
 		writeResourceJSON(t, w, map[string]interface{}{
 			"identifier": 0,
@@ -87,6 +92,7 @@ func TestInstanceCreateRetainsUUIDAcrossVisibilityLagAndPatchesPorts(t *testing.
 		"cpu_cores":             int64(4),
 		"disk_size_gb":          int64(100),
 		"num_gpus":              int64(1),
+		"public_key":            publicKeyWithNewline,
 		"http_ports":            []int64{8080},
 		"allow_snapshot_modify": false,
 	})
@@ -262,7 +268,14 @@ func TestInstanceCreatePortSemantics(t *testing.T) {
 		wantAdd         []int
 		wantRemove      []int
 		wantStatePorts  []int64
+		wantStateNull   bool
 	}{
+		{
+			name:            "omitted ports remain null without template defaults",
+			configuredPorts: nil,
+			serverPorts:     nil,
+			wantStateNull:   true,
+		},
 		{
 			name:            "omitted ports adopt template defaults",
 			configuredPorts: nil,
@@ -340,6 +353,9 @@ func TestInstanceCreatePortSemantics(t *testing.T) {
 			diags := resp.State.GetAttribute(ctx, path.Root("http_ports"), &gotPorts)
 			if diags.HasError() {
 				t.Fatalf("reading ports state: %v", diags)
+			}
+			if gotPorts.IsNull() != tt.wantStateNull {
+				t.Errorf("state ports null = %t, want %t", gotPorts.IsNull(), tt.wantStateNull)
 			}
 			if !int64SliceSetEqual(extractInt64Set(gotPorts), tt.wantStatePorts) {
 				t.Errorf("state ports = %v, want %v", extractInt64Set(gotPorts), tt.wantStatePorts)
@@ -455,6 +471,9 @@ func TestInstanceUpdateSeparatesComputeAndPortOperations(t *testing.T) {
 
 func TestInstanceUpdateConfirmsTransientListMiss(t *testing.T) {
 	ctx := context.Background()
+	originalPollInterval := instancePollInterval
+	instancePollInterval = time.Millisecond
+	defer func() { instancePollInterval = originalPollInterval }()
 	listCalls := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, _ *http.Request) {
@@ -502,6 +521,9 @@ func TestInstanceUpdateConfirmsTransientListMiss(t *testing.T) {
 
 func TestInstanceDeleteConfirmsTransientListMiss(t *testing.T) {
 	ctx := context.Background()
+	originalPollInterval := instancePollInterval
+	instancePollInterval = time.Millisecond
+	defer func() { instancePollInterval = originalPollInterval }()
 	listCalls := 0
 	deleteCalls := 0
 	mux := http.NewServeMux()
