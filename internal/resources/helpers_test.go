@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -23,6 +24,35 @@ func TestExtractInt64Set_Unknown(t *testing.T) {
 	result := extractInt64Set(types.SetUnknown(types.Int64Type))
 	if result != nil {
 		t.Errorf("expected nil for unknown set, got %v", result)
+	}
+}
+
+func TestSetContainsUnknown(t *testing.T) {
+	knownSet, diags := types.SetValue(types.Int64Type, []attr.Value{types.Int64Value(8080)})
+	if diags.HasError() {
+		t.Fatalf("building known set: %v", diags)
+	}
+	partiallyUnknownSet, diags := types.SetValue(types.Int64Type, []attr.Value{types.Int64Value(8080), types.Int64Unknown()})
+	if diags.HasError() {
+		t.Fatalf("building partially unknown set: %v", diags)
+	}
+
+	tests := []struct {
+		name string
+		set  types.Set
+		want bool
+	}{
+		{"null set", types.SetNull(types.Int64Type), false},
+		{"unknown set", types.SetUnknown(types.Int64Type), true},
+		{"known elements", knownSet, false},
+		{"unknown element in known set", partiallyUnknownSet, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := setContainsUnknown(tt.set); got != tt.want {
+				t.Errorf("setContainsUnknown() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -111,7 +141,7 @@ func TestParseIntOrZero(t *testing.T) {
 	}
 }
 
-func TestIsModifyDisabled(t *testing.T) {
+func TestIsLegacyModifyContractError(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
@@ -150,9 +180,9 @@ func TestIsModifyDisabled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isModifyDisabled(tt.err)
+			got := isLegacyModifyContractError(tt.err)
 			if got != tt.want {
-				t.Errorf("isModifyDisabled(%v) = %v, want %v", tt.err, got, tt.want)
+				t.Errorf("isLegacyModifyContractError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}

@@ -422,8 +422,8 @@ func (r *InstanceResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if configuredPorts.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(path.Root("http_ports"), "Unknown HTTP ports", "http_ports must be known when the instance is created.")
+	if setContainsUnknown(configuredPorts) {
+		resp.Diagnostics.AddAttributeError(path.Root("http_ports"), "Unknown HTTP ports", "http_ports and every port in it must be known when the instance is created.")
 		return
 	}
 	portsConfigured := !configuredPorts.IsNull()
@@ -560,8 +560,8 @@ func (r *InstanceResource) Update(ctx context.Context, req resource.UpdateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if configuredPorts.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(path.Root("http_ports"), "Unknown HTTP ports", "http_ports must be known when the instance is updated.")
+	if setContainsUnknown(configuredPorts) {
+		resp.Diagnostics.AddAttributeError(path.Root("http_ports"), "Unknown HTTP ports", "http_ports and every port in it must be known when the instance is updated.")
 		return
 	}
 	portsConfigured := !configuredPorts.IsNull()
@@ -719,8 +719,11 @@ func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportS
 	)
 }
 
-// isModifyDisabled returns true when Thunder Compute's modify endpoint is temporarily unavailable.
-func isModifyDisabled(err error) bool {
+// isLegacyModifyContractError returns true when the modify API rejected the
+// request with its legacy snapshot-and-recreate contract. The API emitted
+// temporarily_disabled only while modify was hard-disabled, and that response
+// instructed callers to snapshot and recreate the instance, not to retry.
+func isLegacyModifyContractError(err error) bool {
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.StatusCode == 400 && apiErr.ErrorType == "temporarily_disabled"
@@ -733,9 +736,7 @@ func requiresManualSnapshotRecreate(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return false
 	}
-	// The legacy modify API used temporarily_disabled for an explicit contract
-	// that instructed callers to snapshot and recreate, not for a retryable 5xx.
-	return isModifyDisabled(err) || apiErr.ErrorType == "unsupported_instance_version"
+	return isLegacyModifyContractError(err) || apiErr.ErrorType == "unsupported_instance_version"
 }
 
 func (r *InstanceResource) validateInstanceConfiguration(ctx context.Context, model, previous *InstanceResourceModel) error {
@@ -850,7 +851,7 @@ func (r *InstanceResource) waitForInstanceConfiguration(ctx context.Context, uui
 			if status == "STOPPED" {
 				return "", nil, fmt.Errorf("instance %s entered terminal status: %s", uuid, item.Status)
 			}
-			if status == "RUNNING" && item.IP != "" && instanceMatchesComputePlan(item, plan) {
+			if status == "RUNNING" && item.IP != "" && instanceMatchesComputePlan(ctx, item, plan) {
 				return index, item, nil
 			}
 		}
@@ -858,11 +859,11 @@ func (r *InstanceResource) waitForInstanceConfiguration(ctx context.Context, uui
 	}
 }
 
-func instanceMatchesComputePlan(item *client.InstanceListItem, plan *InstanceResourceModel) bool {
-	return parseIntOrZero(context.Background(), item.CPUCores) == plan.CPUCores.ValueInt64() &&
+func instanceMatchesComputePlan(ctx context.Context, item *client.InstanceListItem, plan *InstanceResourceModel) bool {
+	return parseIntOrZero(ctx, item.CPUCores) == plan.CPUCores.ValueInt64() &&
 		int64(item.Storage) == plan.DiskSizeGB.ValueInt64() &&
 		normalizeGPUType(item.GPUType) == normalizeGPUType(plan.GPUType.ValueString()) &&
-		parseIntOrZero(context.Background(), item.NumGPUs) == plan.NumGPUs.ValueInt64()
+		parseIntOrZero(ctx, item.NumGPUs) == plan.NumGPUs.ValueInt64()
 }
 
 // waitForRunning polls until the instance reaches RUNNING with an IP assigned.
@@ -979,6 +980,22 @@ func (r *InstanceResource) populateInstanceModel(ctx context.Context, index stri
 }
 
 // --- Helpers ---
+
+// setContainsUnknown reports whether the set itself or any of its elements is
+// unknown. A set referencing another resource's computed value stays known at
+// the collection level while holding unknown elements, which extractInt64Set
+// would otherwise read as zero values.
+func setContainsUnknown(s types.Set) bool {
+	if s.IsUnknown() {
+		return true
+	}
+	for _, elem := range s.Elements() {
+		if elem.IsUnknown() {
+			return true
+		}
+	}
+	return false
+}
 
 func extractInt64Set(s types.Set) []int64 {
 	if s.IsNull() || s.IsUnknown() {
