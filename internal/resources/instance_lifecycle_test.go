@@ -385,6 +385,98 @@ func TestInstanceUpdateSeparatesComputeAndPortOperations(t *testing.T) {
 	}
 }
 
+func TestInstanceUpdateConfirmsTransientListMiss(t *testing.T) {
+	ctx := context.Background()
+	listCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, _ *http.Request) {
+		listCalls++
+		if listCalls == 1 {
+			writeResourceJSON(t, w, map[string]interface{}{})
+			return
+		}
+		writeResourceJSON(t, w, map[string]interface{}{"0": runningInstanceFixture(nil)})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	values := map[string]interface{}{
+		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
+		"http_ports": nil, "allow_snapshot_modify": false, "id": "instance-uuid",
+		"generated_key": "private-key-material",
+	}
+	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), values)
+	resp := resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+	r.Update(ctx, resource.UpdateRequest{
+		Config: tfsdk.Config{Raw: raw, Schema: s},
+		Plan:   tfsdk.Plan{Raw: raw, Schema: s},
+		State:  tfsdk.State{Raw: raw, Schema: s},
+	}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update() diagnostics: %v", resp.Diagnostics)
+	}
+	if listCalls != 2 {
+		t.Fatalf("list calls = %d, want 2 to confirm the transient miss", listCalls)
+	}
+	var gotID types.String
+	if diags := resp.State.GetAttribute(ctx, path.Root("id"), &gotID); diags.HasError() {
+		t.Fatalf("reading instance id: %v", diags)
+	}
+	if gotID.ValueString() != "instance-uuid" {
+		t.Errorf("state id = %q, want instance-uuid", gotID.ValueString())
+	}
+}
+
+func TestInstanceDeleteConfirmsTransientListMiss(t *testing.T) {
+	ctx := context.Background()
+	listCalls := 0
+	deleteCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, _ *http.Request) {
+		listCalls++
+		if listCalls == 1 {
+			writeResourceJSON(t, w, map[string]interface{}{})
+			return
+		}
+		writeResourceJSON(t, w, map[string]interface{}{"0": runningInstanceFixture(nil)})
+	})
+	mux.HandleFunc("/v1/instances/0/delete", func(w http.ResponseWriter, req *http.Request) {
+		deleteCalls++
+		if req.Method != http.MethodPost {
+			t.Errorf("delete method = %s, want POST", req.Method)
+		}
+		writeResourceJSON(t, w, map[string]interface{}{"message": "deleted"})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
+		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
+		"http_ports": nil, "allow_snapshot_modify": false, "id": "instance-uuid",
+	})
+	var resp resource.DeleteResponse
+	r.Delete(ctx, resource.DeleteRequest{State: tfsdk.State{Raw: raw, Schema: s}}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Delete() diagnostics: %v", resp.Diagnostics)
+	}
+	if listCalls != 2 {
+		t.Errorf("list calls = %d, want 2 to confirm the transient miss", listCalls)
+	}
+	if deleteCalls != 1 {
+		t.Errorf("delete calls = %d, want 1", deleteCalls)
+	}
+}
+
 func TestInstanceUpdateUnsupportedVersionFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	unexpectedMutations := 0
@@ -523,6 +615,53 @@ func TestValidateInstanceConfigurationUsesPublicSpecs(t *testing.T) {
 				t.Errorf("validateInstanceConfiguration() error = %v, wantError %t", err, tt.wantError)
 			}
 		})
+	}
+}
+
+func TestValidateInstanceConfigurationDefersLegacyModeUpdatesToAPI(t *testing.T) {
+	ctx := context.Background()
+	specCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/specs", func(w http.ResponseWriter, _ *http.Request) {
+		specCalls++
+		writeResourceJSON(t, w, gpuSpecsFixture())
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
+
+	tests := []struct {
+		name    string
+		mode    string
+		numGPUs int64
+	}{
+		{name: "one GPU production", mode: "production", numGPUs: 1},
+		{name: "four GPU prototyping", mode: "prototyping", numGPUs: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			previous := &InstanceResourceModel{
+				Mode:       types.StringValue(tt.mode),
+				GPUType:    types.StringValue("A6000"),
+				NumGPUs:    types.Int64Value(tt.numGPUs),
+				CPUCores:   types.Int64Value(4),
+				DiskSizeGB: types.Int64Value(100),
+			}
+			model := &InstanceResourceModel{
+				Mode:       types.StringValue(tt.mode),
+				GPUType:    types.StringValue("A6000"),
+				NumGPUs:    types.Int64Value(tt.numGPUs),
+				CPUCores:   types.Int64Value(16),
+				DiskSizeGB: types.Int64Value(100),
+				Template:   types.StringValue("base"),
+			}
+			if err := r.validateInstanceConfiguration(ctx, model, previous); err != nil {
+				t.Fatalf("validateInstanceConfiguration() rejected a legacy mode update: %v", err)
+			}
+		})
+	}
+	if specCalls != 0 {
+		t.Errorf("public specs calls = %d, want 0 for legacy off-route updates", specCalls)
 	}
 }
 

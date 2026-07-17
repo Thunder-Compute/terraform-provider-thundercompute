@@ -572,7 +572,7 @@ func (r *InstanceResource) Update(ctx context.Context, req resource.UpdateReques
 	defer cancel()
 
 	uuid := state.ID.ValueString()
-	index, item, err := r.client.GetInstanceByUUID(ctx, uuid)
+	index, item, err := r.getInstanceByUUIDConfirmingAbsence(ctx, uuid)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating Thunder Compute instance",
 			fmt.Sprintf("Could not resolve instance %s: %s", uuid, err.Error()))
@@ -689,7 +689,7 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 	defer cancel()
 
 	uuid := state.ID.ValueString()
-	index, item, err := r.client.GetInstanceByUUID(ctx, uuid)
+	index, item, err := r.getInstanceByUUIDConfirmingAbsence(ctx, uuid)
 	if err != nil {
 		resp.Diagnostics.AddError("Error deleting Thunder Compute instance",
 			fmt.Sprintf("Could not resolve instance %s for deletion: %s", uuid, err.Error()))
@@ -735,6 +735,18 @@ func requiresManualSnapshotRecreate(err error) bool {
 }
 
 func (r *InstanceResource) validateInstanceConfiguration(ctx context.Context, model, previous *InstanceResourceModel) error {
+	// The public specs endpoint omits the internal mode. When an existing
+	// off-route instance keeps the same GPU count, the modify endpoint preserves
+	// its legacy mode, which cannot be represented by /v2/specs. Defer validation
+	// to that authoritative endpoint instead of applying the routed mode's spec.
+	if previous != nil && model.NumGPUs.ValueInt64() == previous.NumGPUs.ValueInt64() {
+		routedMode, ok := legacyModeCompatibilityForGPUCount(previous.NumGPUs.ValueInt64())
+		if ok && !previous.Mode.IsNull() && !previous.Mode.IsUnknown() && previous.Mode.ValueString() != "" &&
+			!strings.EqualFold(previous.Mode.ValueString(), routedMode) {
+			return nil
+		}
+	}
+
 	specs, err := r.client.GetGPUSpecs(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load the current GPU specification contract: %w", err)
@@ -890,27 +902,27 @@ func (r *InstanceResource) waitForRunning(ctx context.Context, uuid string) (str
 // readIntoModel fetches the instance by UUID and populates all model fields.
 // Sets model.ID to null if the instance no longer exists (signals removal).
 func (r *InstanceResource) readIntoModel(ctx context.Context, uuid string, model *InstanceResourceModel, diags *diag.Diagnostics) {
-	index, item, err := r.client.GetInstanceByUUID(ctx, uuid)
+	index, item, err := r.getInstanceByUUIDConfirmingAbsence(ctx, uuid)
 	if err != nil {
 		diags.AddError("Error reading Thunder Compute instance",
 			fmt.Sprintf("Could not read instance %s: %s", uuid, err.Error()))
 		return
 	}
 	if item == nil {
-		// A single empty list response is not enough to evict an instance from
-		// state. Confirm disappearance with a second independent read.
-		index, item, err = r.client.GetInstanceByUUID(ctx, uuid)
-		if err != nil {
-			diags.AddError("Error confirming Thunder Compute instance disappearance",
-				fmt.Sprintf("Could not confirm whether instance %s still exists: %s", uuid, err.Error()))
-			return
-		}
-		if item == nil {
-			model.ID = types.StringNull()
-			return
-		}
+		model.ID = types.StringNull()
+		return
 	}
 	r.populateInstanceModel(ctx, index, item, model, diags)
+}
+
+// getInstanceByUUIDConfirmingAbsence repeats the list-backed lookup before
+// treating an instance as gone. A single empty list response can be transient.
+func (r *InstanceResource) getInstanceByUUIDConfirmingAbsence(ctx context.Context, uuid string) (string, *client.InstanceListItem, error) {
+	index, item, err := r.client.GetInstanceByUUID(ctx, uuid)
+	if err != nil || item != nil {
+		return index, item, err
+	}
+	return r.client.GetInstanceByUUID(ctx, uuid)
 }
 
 func (r *InstanceResource) populateInstanceModel(ctx context.Context, index string, item *client.InstanceListItem, model *InstanceResourceModel, diags *diag.Diagnostics) {

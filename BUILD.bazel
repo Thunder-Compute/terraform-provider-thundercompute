@@ -2,7 +2,16 @@ load("@gazelle//:def.bzl", "gazelle")
 load("@rules_go//go:def.bzl", "go_binary", "go_library")
 
 # gazelle:prefix terraform-provider-thundercompute
-gazelle(name = "gazelle")
+gazelle(
+    name = "gazelle",
+    args = [
+        "-index=false",
+        "-repo_config",
+        "$(location :gazelle-repositories.bzl)",
+        "terraform",
+    ],
+    data = [":gazelle-repositories.bzl"],
+)
 
 go_library(
     name = "terraform-provider-thundercompute_lib",
