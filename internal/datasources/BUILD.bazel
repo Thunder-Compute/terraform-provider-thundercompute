@@ -13,6 +13,7 @@ go_library(
     visibility = ["//terraform:__subpackages__"],
     deps = [
         "//terraform/internal/client",
+        "//terraform/internal/resources",
         "@com_github_hashicorp_terraform_plugin_framework//datasource",
         "@com_github_hashicorp_terraform_plugin_framework//datasource/schema",
         "@com_github_hashicorp_terraform_plugin_framework//types",

@@ -3,12 +3,12 @@
 page_title: "thundercompute_pricing Data Source - Thunder Compute"
 subcategory: ""
 description: |-
-  Retrieves current hourly pricing for Thunder Compute GPU types.
+  Retrieves the current public Thunder Compute price map, covering GPU configurations and per-resource component rates.
 ---
 
 # thundercompute_pricing (Data Source)
 
-Retrieves current hourly pricing for Thunder Compute GPU types.
+Retrieves the current public Thunder Compute price map, covering GPU configurations and per-resource component rates.
 
 ## Example Usage
 
@@ -25,4 +25,4 @@ output "hourly_prices" {
 
 ### Read-Only
 
-- `pricing` (Map of Number) Map of canonical GPU/count spec key (for example a6000_x1) to hourly price in USD.
+- `pricing` (Map of Number) Map of public price key to hourly price in USD. Keys include canonical GPU/count spec keys (for example a6000_x1 or h100_x4), legacy bare GPU and _native aliases (for example h100 or h100_native), and per-unit component rates (for example additional_vcpus, disk_gb, ephemeral_disk_gb, and snapshot_gb).

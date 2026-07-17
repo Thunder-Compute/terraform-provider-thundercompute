@@ -63,9 +63,8 @@ provider "thundercompute" {}
 
 resource "thundercompute_instance" "test" {
   gpu_type     = "A6000"
-  mode         = "prototyping"
   template     = "base"
-  cpu_cores    = 4
+  cpu_cores    = 6
   disk_size_gb = 100
   num_gpus     = 1
 }
@@ -83,9 +82,8 @@ provider "thundercompute" {}
 
 resource "thundercompute_instance" "test" {
   gpu_type     = "A6000"
-  mode         = "prototyping"
   template     = "base"
-  cpu_cores    = 4
+  cpu_cores    = 6
   disk_size_gb = 100
   num_gpus     = 1
 }

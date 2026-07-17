@@ -132,7 +132,7 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				Description: "SSH public key to inject at creation time.",
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(
-						regexp.MustCompile(`^$|^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+\S{11,}(\s+.*)?$`),
+						regexp.MustCompile(`^$|^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)[ \t]+\S{11,}(?:[ \t]+[^\r\n]*)?[\r\n]*$`),
 						"must be an OpenSSH public key with a supported key type",
 					),
 				},
@@ -279,7 +279,7 @@ func (r *InstanceResource) UpgradeState(ctx context.Context) map[int64]resource.
 					}
 					numGPUs, _ := numGPUsValue.Int64()
 					var ok bool
-					mode, ok = legacyModeCompatibilityForGPUCount(numGPUs)
+					mode, ok = LegacyModeCompatibilityForGPUCount(numGPUs)
 					if !ok {
 						resp.Diagnostics.AddError("Unable to upgrade instance state", fmt.Sprintf("num_gpus must be one of 1, 2, 4, or 8; got %d", numGPUs))
 						return
@@ -298,7 +298,10 @@ func (r *InstanceResource) UpgradeState(ctx context.Context) map[int64]resource.
 	}
 }
 
-func legacyModeCompatibilityForGPUCount(numGPUs int64) (string, bool) {
+// LegacyModeCompatibilityForGPUCount maps a GPU count to the compatibility
+// value the removed v0.1.0 mode field used to imply. Shared with data sources
+// that still surface the deprecated mode attribute.
+func LegacyModeCompatibilityForGPUCount(numGPUs int64) (string, bool) {
 	switch numGPUs {
 	case 1, 2:
 		return "prototyping", true
@@ -310,7 +313,7 @@ func legacyModeCompatibilityForGPUCount(numGPUs int64) (string, bool) {
 }
 
 func resolveLegacyModeState(configuredMode string, configuredModeSet bool, stateMode string, planGPUs, stateGPUs int64, hasState bool) (string, string, error) {
-	compatibilityMode, ok := legacyModeCompatibilityForGPUCount(planGPUs)
+	compatibilityMode, ok := LegacyModeCompatibilityForGPUCount(planGPUs)
 	if !ok {
 		return "", "", fmt.Errorf("num_gpus must be one of 1, 2, 4, or 8; got %d", planGPUs)
 	}
@@ -741,7 +744,7 @@ func (r *InstanceResource) validateInstanceConfiguration(ctx context.Context, mo
 	// its legacy mode, which cannot be represented by /v2/specs. Defer validation
 	// to that authoritative endpoint instead of applying the routed mode's spec.
 	if previous != nil && model.NumGPUs.ValueInt64() == previous.NumGPUs.ValueInt64() {
-		routedMode, ok := legacyModeCompatibilityForGPUCount(previous.NumGPUs.ValueInt64())
+		routedMode, ok := LegacyModeCompatibilityForGPUCount(previous.NumGPUs.ValueInt64())
 		if ok && !previous.Mode.IsNull() && !previous.Mode.IsUnknown() && previous.Mode.ValueString() != "" &&
 			!strings.EqualFold(previous.Mode.ValueString(), routedMode) {
 			return nil
@@ -844,7 +847,7 @@ func (r *InstanceResource) waitForInstanceConfiguration(ctx context.Context, uui
 		}
 		if item != nil {
 			status := strings.ToUpper(item.Status)
-			if status == "STOPPED" || status == "UNKNOWN" {
+			if status == "STOPPED" {
 				return "", nil, fmt.Errorf("instance %s entered terminal status: %s", uuid, item.Status)
 			}
 			if status == "RUNNING" && item.IP != "" && instanceMatchesComputePlan(item, plan) {
@@ -863,7 +866,10 @@ func instanceMatchesComputePlan(item *client.InstanceListItem, plan *InstanceRes
 }
 
 // waitForRunning polls until the instance reaches RUNNING with an IP assigned.
-// Fails fast on permanent API errors and terminal instance statuses.
+// Fails fast on permanent API errors and terminal instance statuses. UNKNOWN
+// is not terminal: the API reports it whenever the control plane cannot
+// determine state yet (including the normal window before a new instance is
+// visible in the cluster cache), so it polls until the operation timeout.
 var instancePollInterval = 5 * time.Second
 
 func (r *InstanceResource) waitForRunning(ctx context.Context, uuid string) (string, *client.InstanceListItem, error) {
@@ -891,7 +897,7 @@ func (r *InstanceResource) waitForRunning(ctx context.Context, uuid string) (str
 			switch {
 			case status == "RUNNING" && item.IP != "":
 				return index, item, nil
-			case status == "STOPPED" || status == "UNKNOWN":
+			case status == "STOPPED":
 				return "", nil, fmt.Errorf("instance %s entered terminal status: %s", uuid, item.Status)
 			}
 		}
@@ -936,7 +942,7 @@ func (r *InstanceResource) populateInstanceModel(ctx context.Context, index stri
 		model.GPUType = types.StringValue(normalizeGPUType(item.GPUType))
 	}
 	if model.Mode.IsNull() || model.Mode.IsUnknown() || model.Mode.ValueString() == "" {
-		mode, ok := legacyModeCompatibilityForGPUCount(parseIntOrZero(ctx, item.NumGPUs))
+		mode, ok := LegacyModeCompatibilityForGPUCount(parseIntOrZero(ctx, item.NumGPUs))
 		if !ok {
 			diags.AddError("Unable to populate legacy mode compatibility", fmt.Sprintf("Instance %s returned num_gpus %q, which cannot be represented in v0.1.0 compatibility state.", item.UUID, item.NumGPUs))
 			return

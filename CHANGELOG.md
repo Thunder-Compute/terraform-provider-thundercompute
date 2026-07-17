@@ -14,6 +14,8 @@ BUG FIXES:
 * Structured API errors are preserved after safe GET and PATCH retries are exhausted.
 * Legacy snapshot imports can hydrate `instance_id` from configuration without replacing the imported snapshot.
 * In-place instance updates preserve the instance UUID so dependent snapshots and SSH keys are not replaced.
+* `public_key` accepts newline-terminated OpenSSH public key file content (for example from `file(...)`) while rejecting embedded multiline data.
+* Instance create and modify waits no longer treat the transient `UNKNOWN` status as terminal; the API reports `UNKNOWN` while it cannot determine instance state (for example during early provisioning), so polling continues until the operation timeout.
 
 DEPRECATIONS:
 

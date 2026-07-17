@@ -31,12 +31,12 @@ func (d *PricingDataSource) Metadata(_ context.Context, req datasource.MetadataR
 
 func (d *PricingDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Retrieves current hourly pricing for Thunder Compute GPU types.",
+		Description: "Retrieves the current public Thunder Compute price map, covering GPU configurations and per-resource component rates.",
 		Attributes: map[string]schema.Attribute{
 			"pricing": schema.MapAttribute{
 				Computed:    true,
 				ElementType: types.Float64Type,
-				Description: "Map of canonical GPU/count spec key (for example a6000_x1) to hourly price in USD.",
+				Description: "Map of public price key to hourly price in USD. Keys include canonical GPU/count spec keys (for example a6000_x1 or h100_x4), legacy bare GPU and _native aliases (for example h100 or h100_native), and per-unit component rates (for example additional_vcpus, disk_gb, ephemeral_disk_gb, and snapshot_gb).",
 			},
 		},
 	}

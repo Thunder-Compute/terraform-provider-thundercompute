@@ -16,11 +16,12 @@ install: build
 	mkdir -p $(INSTALL_DIR)
 	cp $(BINARY_NAME) $(INSTALL_DIR)/
 
+# Tests must run through Bazel (repository rule; never invoke go test directly).
 test:
-	go test ./internal/... -v -count=1
+	bazel test //terraform/... --test_output=errors --nocache_test_results
 
 testacc:
-	TF_ACC=1 go test ./internal/... -v -count=1 -timeout 30m
+	TF_ACC=1 bazel test //terraform/... --test_output=streamed --nocache_test_results --test_timeout=1800
 
 vet:
 	go vet ./...

@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"terraform-provider-thundercompute/internal/client"
+	"terraform-provider-thundercompute/internal/resources"
 )
 
 var _ datasource.DataSource = (*InstancesDataSource)(nil)
@@ -133,14 +134,11 @@ func (d *InstancesDataSource) Read(ctx context.Context, _ datasource.ReadRequest
 }
 
 func legacyModeCompatibilityValue(numGPUs int64) types.String {
-	switch numGPUs {
-	case 1, 2:
-		return types.StringValue("prototyping")
-	case 4, 8:
-		return types.StringValue("production")
-	default:
+	mode, ok := resources.LegacyModeCompatibilityForGPUCount(numGPUs)
+	if !ok {
 		return types.StringNull()
 	}
+	return types.StringValue(mode)
 }
 
 func parseIntOr(s string, fallback int64) int64 {

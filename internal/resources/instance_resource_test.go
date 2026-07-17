@@ -79,12 +79,10 @@ func TestAccInstanceResource_basic(t *testing.T) {
 					resource.TestCheckResourceAttrSet("thundercompute_instance.test", "ip"),
 					resource.TestCheckResourceAttrSet("thundercompute_instance.test", "status"),
 					resource.TestCheckResourceAttr("thundercompute_instance.test", "gpu_type", "A6000"),
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "mode", "prototyping"),
 					resource.TestCheckResourceAttr("thundercompute_instance.test", "template", "base"),
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "cpu_cores", "4"),
+					resource.TestCheckResourceAttr("thundercompute_instance.test", "cpu_cores", "6"),
 					resource.TestCheckResourceAttr("thundercompute_instance.test", "disk_size_gb", "100"),
 					resource.TestCheckResourceAttr("thundercompute_instance.test", "num_gpus", "1"),
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "allow_snapshot_modify", "false"),
 				),
 			},
 		},
@@ -98,9 +96,9 @@ func TestAccInstanceResource_update(t *testing.T) {
 		CheckDestroy:             checkInstanceDestroyed,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccInstanceConfig_withSnapshotModify(),
+				Config: testAccInstanceConfig_basic(),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "cpu_cores", "4"),
+					resource.TestCheckResourceAttr("thundercompute_instance.test", "cpu_cores", "6"),
 					resource.TestCheckResourceAttr("thundercompute_instance.test", "gpu_type", "A6000"),
 				),
 			},
@@ -116,6 +114,64 @@ func TestAccInstanceResource_update(t *testing.T) {
 			},
 		},
 	})
+}
+
+// TestAccInstanceResource_legacyFieldsMigration covers the v0.1.0 upgrade
+// path: a config still carrying the deprecated mode and allow_snapshot_modify
+// fields applies cleanly, and dropping them afterwards must not replace the
+// instance.
+func TestAccInstanceResource_legacyFieldsMigration(t *testing.T) {
+	var instanceID string
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories(),
+		CheckDestroy:             checkInstanceDestroyed,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccInstanceConfig_legacyFields(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("thundercompute_instance.test", "mode", "prototyping"),
+					resource.TestCheckResourceAttr("thundercompute_instance.test", "allow_snapshot_modify", "true"),
+					testAccCaptureInstanceID("thundercompute_instance.test", &instanceID),
+				),
+			},
+			{
+				Config: testAccInstanceConfig_basic(),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("thundercompute_instance.test", "mode", "prototyping"),
+					resource.TestCheckResourceAttr("thundercompute_instance.test", "allow_snapshot_modify", "false"),
+					testAccCheckSameInstanceID("thundercompute_instance.test", &instanceID),
+				),
+			},
+		},
+	})
+}
+
+func testAccCaptureInstanceID(resourceName string, id *string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found", resourceName)
+		}
+		*id = rs.Primary.Attributes["id"]
+		if *id == "" {
+			return fmt.Errorf("resource %s has no id", resourceName)
+		}
+		return nil
+	}
+}
+
+func testAccCheckSameInstanceID(resourceName string, id *string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("resource %s not found", resourceName)
+		}
+		if got := rs.Primary.Attributes["id"]; got != *id {
+			return fmt.Errorf("instance was replaced: id changed from %s to %s", *id, got)
+		}
+		return nil
+	}
 }
 
 func TestAccInstanceResource_recreate(t *testing.T) {
@@ -146,10 +202,13 @@ func TestAccInstanceResource_import(t *testing.T) {
 				Config: testAccInstanceConfig_basic(),
 			},
 			{
-				ResourceName:            "thundercompute_instance.test",
-				ImportState:             true,
-				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"public_key", "generated_key", "allow_snapshot_modify", "timeouts"},
+				ResourceName:      "thundercompute_instance.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+				// gpu_type preserves the configured spelling in state, but an
+				// import has no configuration and can only produce the
+				// canonical lowercase identifier.
+				ImportStateVerifyIgnore: []string{"public_key", "generated_key", "allow_snapshot_modify", "timeouts", "gpu_type"},
 			},
 		},
 	})
@@ -205,6 +264,17 @@ func TestInstanceResourcePlanValidation(t *testing.T) {
 		{name: "SSH port rejected", attributes: "http_ports = [22]", expectError: "22"},
 		{name: "out of range port rejected", attributes: "http_ports = [65536]", expectError: "65535"},
 		{name: "invalid public key rejected", attributes: `public_key = "not-a-public-key"`, expectError: "OpenSSH public key"},
+		{
+			name: "newline-terminated public key accepted",
+			attributes: `public_key = <<-EOT
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1lnJOg4gHI9wg++M9T2SqaDMb8dw7ClZcKSAin/Pav user@example.com
+EOT`,
+		},
+		{
+			name:        "embedded multiline public key rejected",
+			attributes:  `public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1lnJOg4gHI9wg++M9T2SqaDMb8dw7ClZcKSAin/Pav user@example.com\nssh-rsa injected"`,
+			expectError: "OpenSSH public key",
+		},
 	}
 
 	for _, tt := range tests {
@@ -238,7 +308,7 @@ provider "thundercompute" {
 resource "thundercompute_instance" "test" {
   gpu_type     = "A6000"
   template     = "base"
-  cpu_cores    = 4
+  cpu_cores    = 6
   disk_size_gb = 100
   num_gpus     = %d
   %s
@@ -246,34 +316,17 @@ resource "thundercompute_instance" "test" {
 `, numGPUs, attributes)
 }
 
-// All configs use A6000 prototyping ($0.35/hr) -- cheapest available
+// All configs use a single A6000 ($0.35/hr) -- cheapest available
 func testAccInstanceConfig_basic() string {
 	return `
 provider "thundercompute" {}
 
 resource "thundercompute_instance" "test" {
   gpu_type     = "A6000"
-  mode         = "prototyping"
   template     = "base"
-  cpu_cores    = 4
+  cpu_cores    = 6
   disk_size_gb = 100
   num_gpus     = 1
-}
-`
-}
-
-func testAccInstanceConfig_withSnapshotModify() string {
-	return `
-provider "thundercompute" {}
-
-resource "thundercompute_instance" "test" {
-  gpu_type              = "A6000"
-  mode                  = "prototyping"
-  template              = "base"
-  cpu_cores             = 4
-  disk_size_gb          = 100
-  num_gpus              = 1
-  allow_snapshot_modify = true
 }
 `
 }
@@ -283,14 +336,12 @@ func testAccInstanceConfig_updated() string {
 provider "thundercompute" {}
 
 resource "thundercompute_instance" "test" {
-  gpu_type              = "A6000"
-  mode                  = "prototyping"
-  template              = "base"
-  cpu_cores             = 8
-  disk_size_gb          = 100
-  num_gpus              = 1
-  http_ports            = [8888]
-  allow_snapshot_modify = true
+  gpu_type     = "A6000"
+  template     = "base"
+  cpu_cores    = 8
+  disk_size_gb = 100
+  num_gpus     = 1
+  http_ports   = [8888]
 }
 `
 }
@@ -301,11 +352,28 @@ provider "thundercompute" {}
 
 resource "thundercompute_instance" "test" {
   gpu_type     = "A6000"
-  mode         = "prototyping"
   template     = "cuda12-9"
-  cpu_cores    = 4
+  cpu_cores    = 6
   disk_size_gb = 100
   num_gpus     = 1
+}
+`
+}
+
+// testAccInstanceConfig_legacyFields exercises the deprecated v0.1.0 fields,
+// which must still apply cleanly without being sent to the API.
+func testAccInstanceConfig_legacyFields() string {
+	return `
+provider "thundercompute" {}
+
+resource "thundercompute_instance" "test" {
+  gpu_type              = "A6000"
+  mode                  = "prototyping"
+  template              = "base"
+  cpu_cores             = 6
+  disk_size_gb          = 100
+  num_gpus              = 1
+  allow_snapshot_modify = true
 }
 `
 }

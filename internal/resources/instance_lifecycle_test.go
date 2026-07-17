@@ -120,6 +120,74 @@ func TestInstanceCreateRetainsUUIDAcrossVisibilityLagAndPatchesPorts(t *testing.
 	}
 }
 
+// TestInstanceCreatePollsThroughTransientUnknownStatus guards against
+// treating UNKNOWN as terminal: the API reports UNKNOWN whenever the control
+// plane cannot determine state yet, including while a freshly created
+// instance is still provisioning.
+func TestInstanceCreatePollsThroughTransientUnknownStatus(t *testing.T) {
+	ctx := context.Background()
+	originalPollInterval := instancePollInterval
+	instancePollInterval = time.Millisecond
+	defer func() { instancePollInterval = originalPollInterval }()
+	listCalls := 0
+
+	mux := http.NewServeMux()
+	registerInstancePreflightFixtures(t, mux)
+	mux.HandleFunc("/v1/instances/create", func(w http.ResponseWriter, _ *http.Request) {
+		writeResourceJSON(t, w, map[string]interface{}{
+			"identifier": 0,
+			"uuid":       "instance-uuid",
+			"key":        "private-key-material",
+		})
+	})
+	mux.HandleFunc("/v1/instances/list", func(w http.ResponseWriter, _ *http.Request) {
+		listCalls++
+		if listCalls == 1 {
+			unknown := runningInstanceFixture(nil)
+			unknown["status"] = "UNKNOWN"
+			unknown["ip"] = ""
+			writeResourceJSON(t, w, map[string]interface{}{"0": unknown})
+			return
+		}
+		writeResourceJSON(t, w, map[string]interface{}{"0": runningInstanceFixture(nil)})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
+		"gpu_type":              "A6000",
+		"template":              "base",
+		"mode":                  "prototyping",
+		"cpu_cores":             int64(4),
+		"disk_size_gb":          int64(100),
+		"num_gpus":              int64(1),
+		"http_ports":            nil,
+		"allow_snapshot_modify": false,
+	})
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{
+		Config: tfsdk.Config{Raw: raw, Schema: s},
+		Plan:   tfsdk.Plan{Raw: raw, Schema: s},
+	}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Create() diagnostics: %v", resp.Diagnostics)
+	}
+	if listCalls < 2 {
+		t.Errorf("list calls = %d, want poll through transient UNKNOWN", listCalls)
+	}
+	var gotStatus types.String
+	if diags := resp.State.GetAttribute(ctx, path.Root("status"), &gotStatus); diags.HasError() {
+		t.Fatalf("reading status: %v", diags)
+	}
+	if gotStatus.ValueString() != "RUNNING" {
+		t.Errorf("state status = %q, want RUNNING", gotStatus.ValueString())
+	}
+}
+
 func TestInstanceCreatePartialStateContainsNoUnknownValues(t *testing.T) {
 	ctx := context.Background()
 	createCalls := 0
