@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -63,7 +64,7 @@ func (r *SSHKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Required:    true,
 				Description: "SSH public key content.",
 				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
+					sshKeyPublicKeyRequiresReplace(),
 				},
 			},
 			"fingerprint": schema.StringAttribute{
@@ -91,6 +92,20 @@ func (r *SSHKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	}
 }
 
+func sshKeyPublicKeyRequiresReplace() planmodifier.String {
+	const description = "Changing the SSH public key replaces the resource; surrounding whitespace is ignored."
+	return stringplanmodifier.RequiresReplaceIf(
+		func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+			if req.PlanValue.IsNull() || req.PlanValue.IsUnknown() || req.StateValue.IsNull() || req.StateValue.IsUnknown() {
+				return
+			}
+			resp.RequiresReplace = strings.TrimSpace(req.PlanValue.ValueString()) != strings.TrimSpace(req.StateValue.ValueString())
+		},
+		description,
+		description,
+	)
+}
+
 func (r *SSHKeyResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
@@ -113,7 +128,7 @@ func (r *SSHKeyResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	addResp, err := r.client.AddSSHKey(ctx, client.SSHKeyAddRequest{
 		Name:      plan.Name.ValueString(),
-		PublicKey: plan.PublicKey.ValueString(),
+		PublicKey: strings.TrimSpace(plan.PublicKey.ValueString()),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Thunder Compute SSH key",
@@ -154,7 +169,11 @@ func (r *SSHKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 
 	state.Name = types.StringValue(key.Name)
-	state.PublicKey = types.StringValue(key.PublicKey)
+	// Preserve the configured value in existing state so file(...) keys with a
+	// trailing newline do not drift; imported resources hydrate from the API.
+	if state.PublicKey.IsNull() || state.PublicKey.IsUnknown() {
+		state.PublicKey = types.StringValue(key.PublicKey)
+	}
 	state.Fingerprint = types.StringValue(key.Fingerprint)
 	state.KeyType = types.StringValue(key.KeyType)
 	state.CreatedAt = types.Int64Value(key.CreatedAt)
@@ -162,7 +181,22 @@ func (r *SSHKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *SSHKeyResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (r *SSHKeyResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state SSHKeyResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if plan.Name.Equal(state.Name) && strings.TrimSpace(plan.PublicKey.ValueString()) == strings.TrimSpace(state.PublicKey.ValueString()) {
+		// Adopt the configured representation without mutating the immutable API
+		// key. This upgrades state written by provider versions that stored the
+		// API-normalized value instead of file(...)'s trailing newline.
+		state.PublicKey = plan.PublicKey
+		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+		return
+	}
 	resp.Diagnostics.AddError("Error updating Thunder Compute SSH key",
 		"SSH keys are immutable. Any change triggers recreation.")
 }

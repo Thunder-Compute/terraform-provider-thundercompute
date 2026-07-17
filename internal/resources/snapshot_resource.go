@@ -29,6 +29,8 @@ type SnapshotResource struct {
 	client *client.Client
 }
 
+var snapshotAmbiguousCreateRecoveryTimeout = time.Minute
+
 type SnapshotResourceModel struct {
 	ID                types.String   `tfsdk:"id"`
 	InstanceID        types.String   `tfsdk:"instance_id"`
@@ -177,7 +179,17 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 			fmt.Sprintf("The create response for snapshot %q was interrupted (%s). Terraform is checking the snapshot list for the server-created identity before deciding whether creation failed.", plan.Name.ValueString(), createErr.Error()))
 	}
 
-	snap, err := WaitForSnapshotVisible(ctx, r.client, plan.Name.ValueString())
+	var snap *client.Snapshot
+	if createErr != nil {
+		// A missing response does not prove the server accepted the create. Bound
+		// the name-based identity lookup independently from the potentially long
+		// snapshot build timeout while still allowing eventual list consistency.
+		recoveryCtx, recoveryCancel := context.WithTimeout(ctx, snapshotAmbiguousCreateRecoveryTimeout)
+		snap, err = WaitForSnapshotVisible(recoveryCtx, r.client, plan.Name.ValueString())
+		recoveryCancel()
+	} else {
+		snap, err = WaitForSnapshotVisible(ctx, r.client, plan.Name.ValueString())
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Thunder Compute snapshot",
 			fmt.Sprintf("Snapshot %q identity could not be recovered: %s", plan.Name.ValueString(), err.Error()))
@@ -245,15 +257,18 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	if state.InstanceID.IsNull() &&
+	hydratingLegacyImport := state.InstanceID.IsNull() &&
 		!plan.InstanceID.IsNull() &&
 		!plan.InstanceID.IsUnknown() &&
 		strings.TrimSpace(plan.InstanceID.ValueString()) != "" &&
-		plan.Name.Equal(state.Name) {
+		plan.Name.Equal(state.Name)
+	if plan.Name.Equal(state.Name) && (plan.InstanceID.Equal(state.InstanceID) || hydratingLegacyImport) {
 		// ID-only imports cannot recover the source instance from the API. Fill
-		// that one missing state value from configuration without touching the
-		// immutable remote snapshot.
-		state.InstanceID = plan.InstanceID
+		// that one missing state value from configuration when needed. Timeout-only
+		// changes are also state-local and do not touch the immutable snapshot.
+		if hydratingLegacyImport {
+			state.InstanceID = plan.InstanceID
+		}
 		state.Timeouts = plan.Timeouts
 		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 		return
@@ -287,19 +302,26 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 }
 
 func (r *SnapshotResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	parts := strings.SplitN(req.ID, ",", 2)
+	parts := strings.Split(req.ID, ",")
+	if len(parts) > 2 {
+		resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. Snapshot import IDs must contain at most one comma.")
+		return
+	}
 	snapshotID := strings.TrimSpace(parts[0])
 	if snapshotID == "" {
 		resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. The snapshot ID cannot be empty.")
 		return
 	}
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(snapshotID))...)
+	instanceID := ""
 	if len(parts) == 2 {
-		instanceID := strings.TrimSpace(parts[1])
+		instanceID = strings.TrimSpace(parts[1])
 		if instanceID == "" {
 			resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. The instance UUID cannot be empty.")
 			return
 		}
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(snapshotID))...)
+	if instanceID != "" {
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), types.StringValue(instanceID))...)
 		return
 	}

@@ -364,7 +364,8 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 		}
 	}
 
-	if hasState && !plannedDisk.IsNull() && !plannedDisk.IsUnknown() && !stateDisk.IsNull() && !stateDisk.IsUnknown() && plannedDisk.ValueInt64() < stateDisk.ValueInt64() {
+	replacementPlanned := hasState && anyAttributesChanged(ctx, req.Plan, req.State, instanceReplacementTriggerAttributes)
+	if hasState && !replacementPlanned && !plannedDisk.IsNull() && !plannedDisk.IsUnknown() && !stateDisk.IsNull() && !stateDisk.IsUnknown() && plannedDisk.ValueInt64() < stateDisk.ValueInt64() {
 		resp.Diagnostics.AddAttributeError(
 			path.Root("disk_size_gb"),
 			"Disk size cannot be decreased",

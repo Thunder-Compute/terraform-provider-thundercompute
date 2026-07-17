@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -73,6 +74,55 @@ func TestSnapshotCreateRecoversIdentityAfterAmbiguousResponse(t *testing.T) {
 	}
 	if listCalls < 3 {
 		t.Errorf("list calls = %d, want identity recovery plus readiness poll", listCalls)
+	}
+}
+
+func TestSnapshotCreateBoundsAmbiguousIdentityRecovery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	originalPollInterval := snapshotPollIntervalShared
+	originalRecoveryTimeout := snapshotAmbiguousCreateRecoveryTimeout
+	snapshotPollIntervalShared = time.Millisecond
+	snapshotAmbiguousCreateRecoveryTimeout = 10 * time.Millisecond
+	defer func() {
+		snapshotPollIntervalShared = originalPollInterval
+		snapshotAmbiguousCreateRecoveryTimeout = originalRecoveryTimeout
+	}()
+
+	listCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/snapshots/create", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeResourceJSON(t, w, map[string]interface{}{"error": "internal", "message": "response lost after create"})
+	})
+	mux.HandleFunc("/v1/snapshots/list", func(w http.ResponseWriter, _ *http.Request) {
+		listCalls++
+		writeResourceJSON(t, w, []interface{}{})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &SnapshotResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
+		"instance_id": "instance-uuid", "name": "snapshot-name",
+	})
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{
+		Config: tfsdk.Config{Raw: raw, Schema: s},
+		Plan:   tfsdk.Plan{Raw: raw, Schema: s},
+	}, &resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("Create() returned no error after ambiguous identity recovery expired")
+	}
+	if ctx.Err() != nil {
+		t.Fatal("ambiguous identity recovery consumed the entire caller/create timeout")
+	}
+	if listCalls < 2 {
+		t.Errorf("snapshot list calls = %d, want a uniqueness check and bounded recovery polling", listCalls)
 	}
 }
 
@@ -188,9 +238,11 @@ func TestSnapshotImportCompoundAndLegacyIDs(t *testing.T) {
 		wantID       string
 		wantInstance string
 		wantWarning  bool
+		wantError    bool
 	}{
 		{name: "compound", importID: "snapshot-id,instance-uuid", wantID: "snapshot-id", wantInstance: "instance-uuid"},
 		{name: "legacy id only", importID: "snapshot-id", wantID: "snapshot-id", wantWarning: true},
+		{name: "extra compound field", importID: "snapshot-id,instance-uuid,extra", wantError: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,8 +251,11 @@ func TestSnapshotImportCompoundAndLegacyIDs(t *testing.T) {
 				Raw:    tftypes.NewValue(s.Type().TerraformType(ctx), nil),
 			}}
 			r.ImportState(ctx, resource.ImportStateRequest{ID: tt.importID}, &resp)
-			if resp.Diagnostics.HasError() {
-				t.Fatalf("ImportState() diagnostics: %v", resp.Diagnostics)
+			if resp.Diagnostics.HasError() != tt.wantError {
+				t.Fatalf("ImportState() diagnostics = %v, wantError %t", resp.Diagnostics, tt.wantError)
+			}
+			if tt.wantError {
+				return
 			}
 			var gotID, gotInstance types.String
 			resp.Diagnostics.Append(resp.State.GetAttribute(ctx, path.Root("id"), &gotID)...)
@@ -291,6 +346,47 @@ func TestSnapshotUpdateHydratesLegacyImportInstanceID(t *testing.T) {
 	}
 }
 
+func TestSnapshotUpdateAcceptsTimeoutChanges(t *testing.T) {
+	ctx := context.Background()
+	r := &SnapshotResource{}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	terraType := s.Type().TerraformType(ctx)
+	stateRaw := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
+		"id": "snapshot-id", "instance_id": "instance-uuid", "name": "snapshot-name", "status": "READY",
+		"timeouts": snapshotTimeoutsTerraformValue("10m", "5m"),
+	})
+	planRaw := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
+		"id": "snapshot-id", "instance_id": "instance-uuid", "name": "snapshot-name", "status": "READY",
+		"timeouts": snapshotTimeoutsTerraformValue("20m", "7m"),
+	})
+	resp := resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+	r.Update(ctx, resource.UpdateRequest{
+		Plan:  tfsdk.Plan{Raw: planRaw, Schema: s},
+		State: tfsdk.State{Raw: stateRaw, Schema: s},
+	}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Update() diagnostics: %v", resp.Diagnostics)
+	}
+
+	var gotTimeouts timeouts.Value
+	if diags := resp.State.GetAttribute(ctx, path.Root("timeouts"), &gotTimeouts); diags.HasError() {
+		t.Fatalf("reading snapshot timeouts: %v", diags)
+	}
+	gotCreate, diags := gotTimeouts.Create(ctx, 0)
+	if diags.HasError() {
+		t.Fatalf("reading create timeout: %v", diags)
+	}
+	gotDelete, diags := gotTimeouts.Delete(ctx, 0)
+	if diags.HasError() {
+		t.Fatalf("reading delete timeout: %v", diags)
+	}
+	if gotCreate != 20*time.Minute || gotDelete != 7*time.Minute {
+		t.Errorf("timeouts = create %s/delete %s, want 20m/7m", gotCreate, gotDelete)
+	}
+}
+
 func TestSnapshotUpdateRejectsRealChanges(t *testing.T) {
 	ctx := context.Background()
 	r := &SnapshotResource{}
@@ -337,5 +433,12 @@ func TestSnapshotReadRemovesDisappearedSnapshot(t *testing.T) {
 	}
 	if !resp.State.Raw.IsNull() {
 		t.Errorf("disappeared snapshot state was not removed: %s", resp.State.Raw)
+	}
+}
+
+func snapshotTimeoutsTerraformValue(create, delete string) map[string]tftypes.Value {
+	return map[string]tftypes.Value{
+		"create": tftypes.NewValue(tftypes.String, create),
+		"delete": tftypes.NewValue(tftypes.String, delete),
 	}
 }

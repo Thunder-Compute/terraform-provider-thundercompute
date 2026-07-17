@@ -129,6 +129,10 @@ func TestInstanceModifyPlanMaintainsLegacyModeState(t *testing.T) {
 		stateGPUs      interface{}
 		planDisk       int64
 		stateDisk      interface{}
+		planTemplate   interface{}
+		stateTemplate  interface{}
+		planPublicKey  interface{}
+		statePublicKey interface{}
 		wantMode       string
 		wantWarning    bool
 		wantError      bool
@@ -185,6 +189,28 @@ func TestInstanceModifyPlanMaintainsLegacyModeState(t *testing.T) {
 			stateDisk:      int64(100),
 			wantError:      true,
 		},
+		{
+			name:          "template replacement allows a smaller disk",
+			planGPUs:      1,
+			stateMode:     "prototyping",
+			stateGPUs:     int64(1),
+			planDisk:      99,
+			stateDisk:     int64(100),
+			planTemplate:  "snapshot",
+			stateTemplate: "base",
+			wantMode:      "prototyping",
+		},
+		{
+			name:           "public key replacement allows a smaller disk",
+			planGPUs:       1,
+			stateMode:      "prototyping",
+			stateGPUs:      int64(1),
+			planDisk:       99,
+			stateDisk:      int64(100),
+			planPublicKey:  "ssh-ed25519 AAAAAAAAAAA new@example.com",
+			statePublicKey: "ssh-ed25519 AAAAAAAAAAA old@example.com",
+			wantMode:       "prototyping",
+		},
 	}
 
 	for _, tt := range tests {
@@ -193,11 +219,15 @@ func TestInstanceModifyPlanMaintainsLegacyModeState(t *testing.T) {
 				"mode":         tt.configuredMode,
 				"num_gpus":     tt.planGPUs,
 				"disk_size_gb": tt.planDisk,
+				"template":     tt.planTemplate,
+				"public_key":   tt.planPublicKey,
 			})
 			planRaw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
 				"mode":         tt.configuredMode,
 				"num_gpus":     tt.planGPUs,
 				"disk_size_gb": tt.planDisk,
+				"template":     tt.planTemplate,
+				"public_key":   tt.planPublicKey,
 			})
 			stateRaw := tftypes.NewValue(s.Type().TerraformType(ctx), nil)
 			if tt.stateGPUs != nil {
@@ -205,6 +235,8 @@ func TestInstanceModifyPlanMaintainsLegacyModeState(t *testing.T) {
 					"mode":         tt.stateMode,
 					"num_gpus":     tt.stateGPUs,
 					"disk_size_gb": tt.stateDisk,
+					"template":     tt.stateTemplate,
+					"public_key":   tt.statePublicKey,
 				})
 			}
 
