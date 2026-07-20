@@ -61,10 +61,10 @@ func (r *SnapshotResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				},
 			},
 			"instance_id": schema.StringAttribute{
-				Optional:    true,
-				Description: "UUID of the instance to snapshot. Required in configuration. Imports should use snapshot_id,instance_uuid because the snapshot list API does not return this value; legacy ID-only imports hydrate it from configuration without replacing the snapshot.",
+				Required:    true,
+				Description: "UUID of the instance to snapshot. Imports must use snapshot_id,instance_uuid because the snapshot list API does not return this value.",
 				PlanModifiers: []planmodifier.String{
-					snapshotInstanceIDRequiresReplace(),
+					stringplanmodifier.RequiresReplace(),
 				},
 			},
 			"name": schema.StringAttribute{
@@ -98,17 +98,6 @@ func (r *SnapshotResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 			}),
 		},
 	}
-}
-
-func snapshotInstanceIDRequiresReplace() planmodifier.String {
-	const description = "Changing the instance UUID replaces the snapshot, except when hydrating a legacy ID-only import."
-	return stringplanmodifier.RequiresReplaceIf(
-		func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
-			resp.RequiresReplace = !req.StateValue.IsNull()
-		},
-		description,
-		description,
-	)
 }
 
 func (r *SnapshotResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
@@ -257,18 +246,9 @@ func (r *SnapshotResource) Update(ctx context.Context, req resource.UpdateReques
 		return
 	}
 
-	hydratingLegacyImport := state.InstanceID.IsNull() &&
-		!plan.InstanceID.IsNull() &&
-		!plan.InstanceID.IsUnknown() &&
-		strings.TrimSpace(plan.InstanceID.ValueString()) != "" &&
-		plan.Name.Equal(state.Name)
-	if plan.Name.Equal(state.Name) && (plan.InstanceID.Equal(state.InstanceID) || hydratingLegacyImport) {
-		// ID-only imports cannot recover the source instance from the API. Fill
-		// that one missing state value from configuration when needed. Timeout-only
-		// changes are also state-local and do not touch the immutable snapshot.
-		if hydratingLegacyImport {
-			state.InstanceID = plan.InstanceID
-		}
+	if plan.Name.Equal(state.Name) && plan.InstanceID.Equal(state.InstanceID) {
+		// Timeout-only changes are state-local and do not touch the immutable
+		// snapshot.
 		state.Timeouts = plan.Timeouts
 		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 		return
@@ -303,8 +283,8 @@ func (r *SnapshotResource) Delete(ctx context.Context, req resource.DeleteReques
 
 func (r *SnapshotResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	parts := strings.Split(req.ID, ",")
-	if len(parts) > 2 {
-		resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. Snapshot import IDs must contain at most one comma.")
+	if len(parts) != 2 {
+		resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. Snapshot import IDs must contain exactly one comma.")
 		return
 	}
 	snapshotID := strings.TrimSpace(parts[0])
@@ -312,21 +292,13 @@ func (r *SnapshotResource) ImportState(ctx context.Context, req resource.ImportS
 		resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. The snapshot ID cannot be empty.")
 		return
 	}
-	instanceID := ""
-	if len(parts) == 2 {
-		instanceID = strings.TrimSpace(parts[1])
-		if instanceID == "" {
-			resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. The instance UUID cannot be empty.")
-			return
-		}
-	}
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(snapshotID))...)
-	if instanceID != "" {
-		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), types.StringValue(instanceID))...)
+	instanceID := strings.TrimSpace(parts[1])
+	if instanceID == "" {
+		resp.Diagnostics.AddError("Invalid snapshot import ID", "Use snapshot_id,instance_uuid. The instance UUID cannot be empty.")
 		return
 	}
-	resp.Diagnostics.AddWarning("Legacy snapshot import ID",
-		"The ID-only import format cannot recover instance_id because the API does not return it. The imported state will retain a null instance_id. Prefer snapshot_id,instance_uuid for future imports.")
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(snapshotID))...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), types.StringValue(instanceID))...)
 }
 
 func isAmbiguousSnapshotCreateError(err error) bool {

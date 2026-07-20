@@ -24,7 +24,6 @@ type GPUSpecsDataSourceModel struct {
 type GPUSpecModel struct {
 	DisplayName   types.String `tfsdk:"display_name"`
 	GPUCount      types.Int64  `tfsdk:"gpu_count"`
-	Mode          types.String `tfsdk:"mode"`
 	RAMCapGiB     types.Int64  `tfsdk:"ram_cap_gib"`
 	RAMPerVCPUGiB types.Int64  `tfsdk:"ram_per_vcpu_gib"`
 	VRAMGB        types.Int64  `tfsdk:"vram_gb"`
@@ -49,13 +48,8 @@ func (d *GPUSpecsDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 				Computed: true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"display_name": schema.StringAttribute{Computed: true, Description: "Human-readable GPU name."},
-						"gpu_count":    schema.Int64Attribute{Computed: true, Description: "Number of GPUs in this configuration."},
-						"mode": schema.StringAttribute{
-							Computed:           true,
-							Description:        "Deprecated compatibility-only field. Instance mode no longer exists in the Thunder Compute API; use gpu_count and the canonical spec key instead.",
-							DeprecationMessage: "mode no longer exists in the Thunder Compute API and will be removed after the v0.2 migration cycle.",
-						},
+						"display_name":     schema.StringAttribute{Computed: true, Description: "Human-readable GPU name."},
+						"gpu_count":        schema.Int64Attribute{Computed: true, Description: "Number of GPUs in this configuration."},
 						"ram_cap_gib":      schema.Int64Attribute{Computed: true, Description: "Maximum total system RAM in GiB when the configuration uses capped affine RAM sizing; zero means uncapped proportional sizing."},
 						"ram_per_vcpu_gib": schema.Int64Attribute{Computed: true, Description: "RAM per vCPU in GiB."},
 						"vram_gb":          schema.Int64Attribute{Computed: true, Description: "GPU VRAM in GB."},
@@ -103,7 +97,6 @@ func (d *GPUSpecsDataSource) Read(ctx context.Context, _ datasource.ReadRequest,
 		model.Specs[key] = GPUSpecModel{
 			DisplayName:   types.StringValue(spec.DisplayName),
 			GPUCount:      types.Int64Value(int64(spec.GPUCount)),
-			Mode:          legacyModeCompatibilityValue(int64(spec.GPUCount)),
 			RAMCapGiB:     types.Int64Value(int64(spec.RAMCapGiB)),
 			RAMPerVCPUGiB: types.Int64Value(int64(spec.RAMPerVCPUGiB)),
 			VRAMGB:        types.Int64Value(int64(spec.VRAMGB)),

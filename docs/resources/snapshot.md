@@ -24,11 +24,11 @@ resource "thundercompute_snapshot" "checkpoint" {
 
 ### Required
 
+- `instance_id` (String) UUID of the instance to snapshot. Imports must use snapshot_id,instance_uuid because the snapshot list API does not return this value.
 - `name` (String) Snapshot name (must be unique within the organization).
 
 ### Optional
 
-- `instance_id` (String) UUID of the instance to snapshot. Required in configuration. Imports should use snapshot_id,instance_uuid because the snapshot list API does not return this value; legacy ID-only imports hydrate it from configuration without replacing the snapshot.
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only

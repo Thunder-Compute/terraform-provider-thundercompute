@@ -72,11 +72,32 @@ func TestAccSnapshotResource_import(t *testing.T) {
 			{
 				ResourceName:            "thundercompute_snapshot.test",
 				ImportState:             true,
+				ImportStateIdFunc:       snapshotImportStateID,
 				ImportStateVerify:       true,
-				ImportStateVerifyIgnore: []string{"instance_id", "timeouts"},
+				ImportStateVerifyIgnore: []string{"timeouts"},
 			},
 		},
 	})
+}
+
+func snapshotImportStateID(state *terraform.State) (string, error) {
+	snapshot, ok := state.RootModule().Resources["thundercompute_snapshot.test"]
+	if !ok {
+		return "", fmt.Errorf("snapshot resource not found")
+	}
+	instance, ok := state.RootModule().Resources["thundercompute_instance.test"]
+	if !ok {
+		return "", fmt.Errorf("instance resource not found")
+	}
+	snapshotID := snapshot.Primary.Attributes["id"]
+	if snapshotID == "" {
+		snapshotID = snapshot.Primary.ID
+	}
+	instanceID := instance.Primary.Attributes["id"]
+	if snapshotID == "" || instanceID == "" {
+		return "", fmt.Errorf("snapshot or instance ID is empty")
+	}
+	return snapshotID + "," + instanceID, nil
 }
 
 func TestAccSnapshotResource_disappears(t *testing.T) {

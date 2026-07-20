@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
@@ -225,7 +224,7 @@ func TestSnapshotCreatePersistsFailedSnapshotIdentity(t *testing.T) {
 	}
 }
 
-func TestSnapshotImportCompoundAndLegacyIDs(t *testing.T) {
+func TestSnapshotImportRequiresCompoundID(t *testing.T) {
 	ctx := context.Background()
 	r := &SnapshotResource{}
 	var schemaResp resource.SchemaResponse
@@ -237,11 +236,12 @@ func TestSnapshotImportCompoundAndLegacyIDs(t *testing.T) {
 		importID     string
 		wantID       string
 		wantInstance string
-		wantWarning  bool
 		wantError    bool
 	}{
 		{name: "compound", importID: "snapshot-id,instance-uuid", wantID: "snapshot-id", wantInstance: "instance-uuid"},
-		{name: "legacy id only", importID: "snapshot-id", wantID: "snapshot-id", wantWarning: true},
+		{name: "id only", importID: "snapshot-id", wantError: true},
+		{name: "empty snapshot id", importID: ",instance-uuid", wantError: true},
+		{name: "empty instance id", importID: "snapshot-id,", wantError: true},
 		{name: "extra compound field", importID: "snapshot-id,instance-uuid,extra", wantError: true},
 	}
 	for _, tt := range tests {
@@ -266,83 +266,10 @@ func TestSnapshotImportCompoundAndLegacyIDs(t *testing.T) {
 			if gotID.ValueString() != tt.wantID || gotInstance.ValueString() != tt.wantInstance {
 				t.Errorf("imported id/instance = %q/%q, want %q/%q", gotID.ValueString(), gotInstance.ValueString(), tt.wantID, tt.wantInstance)
 			}
-			if (resp.Diagnostics.WarningsCount() > 0) != tt.wantWarning {
-				t.Errorf("warnings = %v, wantWarning %t", resp.Diagnostics, tt.wantWarning)
+			if resp.Diagnostics.WarningsCount() != 0 {
+				t.Errorf("warnings = %v, want none", resp.Diagnostics)
 			}
 		})
-	}
-}
-
-func TestSnapshotInstanceIDReplacementPlanning(t *testing.T) {
-	ctx := context.Background()
-	r := &SnapshotResource{}
-	var schemaResp resource.SchemaResponse
-	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
-	s := schemaResp.Schema
-	terraType := s.Type().TerraformType(ctx)
-	nonNullState := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
-		"id": "snapshot-id", "instance_id": "old-instance", "name": "snapshot-name",
-	})
-	legacyState := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
-		"id": "snapshot-id", "name": "snapshot-name",
-	})
-	planRaw := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
-		"id": "snapshot-id", "instance_id": "new-instance", "name": "snapshot-name",
-	})
-
-	tests := []struct {
-		name        string
-		stateRaw    tftypes.Value
-		stateValue  types.String
-		wantReplace bool
-	}{
-		{name: "legacy import hydration", stateRaw: legacyState, stateValue: types.StringNull()},
-		{name: "real instance change", stateRaw: nonNullState, stateValue: types.StringValue("old-instance"), wantReplace: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := planmodifier.StringRequest{
-				Plan:       tfsdk.Plan{Raw: planRaw, Schema: s},
-				PlanValue:  types.StringValue("new-instance"),
-				State:      tfsdk.State{Raw: tt.stateRaw, Schema: s},
-				StateValue: tt.stateValue,
-			}
-			var resp planmodifier.StringResponse
-			snapshotInstanceIDRequiresReplace().PlanModifyString(ctx, req, &resp)
-			if resp.RequiresReplace != tt.wantReplace {
-				t.Errorf("RequiresReplace = %t, want %t", resp.RequiresReplace, tt.wantReplace)
-			}
-		})
-	}
-}
-
-func TestSnapshotUpdateHydratesLegacyImportInstanceID(t *testing.T) {
-	ctx := context.Background()
-	r := &SnapshotResource{}
-	var schemaResp resource.SchemaResponse
-	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
-	s := schemaResp.Schema
-	terraType := s.Type().TerraformType(ctx)
-	stateRaw := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
-		"id": "snapshot-id", "name": "snapshot-name", "status": "READY",
-	})
-	planRaw := instancePlanningValue(ctx, t, terraType, map[string]interface{}{
-		"id": "snapshot-id", "instance_id": "instance-uuid", "name": "snapshot-name", "status": "READY",
-	})
-	resp := resource.UpdateResponse{State: tfsdk.State{Schema: s}}
-	r.Update(ctx, resource.UpdateRequest{
-		Plan:  tfsdk.Plan{Raw: planRaw, Schema: s},
-		State: tfsdk.State{Raw: stateRaw, Schema: s},
-	}, &resp)
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("Update() diagnostics: %v", resp.Diagnostics)
-	}
-	var gotInstanceID types.String
-	if diags := resp.State.GetAttribute(ctx, path.Root("instance_id"), &gotInstanceID); diags.HasError() {
-		t.Fatalf("reading hydrated instance_id: %v", diags)
-	}
-	if gotInstanceID.ValueString() != "instance-uuid" {
-		t.Errorf("instance_id = %q, want instance-uuid", gotInstanceID.ValueString())
 	}
 }
 

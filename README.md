@@ -80,3 +80,5 @@ make vet
 ## Documentation
 
 Provider documentation is auto-generated with [terraform-plugin-docs](https://github.com/hashicorp/terraform-plugin-docs) from the `templates/` and `examples/` directories. Run `make generate-docs` to regenerate the `docs/` directory.
+
+Upgrading from provider v0.1 requires coordinated provider, configuration, and snapshot-state changes. See the [v0.2 migration guide](MIGRATION_0.2.md).

@@ -2,7 +2,6 @@ package resources
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -141,64 +140,12 @@ func TestParseIntOrZero(t *testing.T) {
 	}
 }
 
-func TestIsLegacyModifyContractError(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{
-			name: "temporarily disabled API error",
-			err:  fmt.Errorf("modifying instance 0: %w", &client.APIError{StatusCode: 400, ErrorType: "temporarily_disabled", Message: "Modify is temporarily disabled"}),
-			want: true,
-		},
-		{
-			name: "other API error",
-			err:  fmt.Errorf("modifying instance 0: %w", &client.APIError{StatusCode: 400, ErrorType: "invalid_request", Message: "bad gpu_type"}),
-			want: false,
-		},
-		{
-			name: "unsupported versions never use the old destructive trigger",
-			err:  fmt.Errorf("modifying instance 0: %w", &client.APIError{StatusCode: 400, ErrorType: "unsupported_instance_version"}),
-			want: false,
-		},
-		{
-			name: "non-API error",
-			err:  fmt.Errorf("network failure"),
-			want: false,
-		},
-		{
-			name: "nil error",
-			err:  nil,
-			want: false,
-		},
-		{
-			name: "404 not found",
-			err:  fmt.Errorf("modifying instance 0: %w", &client.APIError{StatusCode: 404, ErrorType: "not_found"}),
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isLegacyModifyContractError(tt.err)
-			if got != tt.want {
-				t.Errorf("isLegacyModifyContractError(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestRequiresManualSnapshotRecreate(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
 		want bool
 	}{
-		{
-			name: "temporarily disabled contract requires manual recreation",
-			err:  &client.APIError{StatusCode: 400, ErrorType: "temporarily_disabled"},
-			want: true,
-		},
 		{
 			name: "unsupported instance version requires manual recreation",
 			err:  &client.APIError{StatusCode: 400, ErrorType: "unsupported_instance_version"},

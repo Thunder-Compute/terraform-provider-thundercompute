@@ -40,9 +40,7 @@ output "ssh_command" {
 
 ### Optional
 
-- `allow_snapshot_modify` (Boolean, Deprecated) Deprecated compatibility setting. Legacy instances must be snapshotted and recreated manually.
 - `http_ports` (Set of Number) Set of HTTP ports to expose publicly via thundercompute.net.
-- `mode` (String, Deprecated) Deprecated compatibility-only field for v0.1.0 state. Instance mode no longer exists and this value is not sent to the API.
 - `public_key` (String) SSH public key to inject at creation time.
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 

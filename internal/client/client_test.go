@@ -443,7 +443,7 @@ func TestCreateInstance_RequestBody(t *testing.T) {
 
 	req := CreateInstanceRequest{
 		CPUCores: 4, DiskSizeGB: 100, GPUType: "H100",
-		Mode: "prototyping", NumGPUs: 1, Template: "ubuntu-22.04",
+		NumGPUs: 1, Template: "ubuntu-22.04",
 	}
 	resp, err := c.CreateInstance(context.Background(), req)
 	if err != nil {
@@ -584,8 +584,7 @@ func TestModifyInstance_PartialBody(t *testing.T) {
 	defer srv.Close()
 
 	cores := 8
-	legacyMode := "production"
-	req := ModifyInstanceRequest{CPUCores: &cores, Mode: &legacyMode}
+	req := ModifyInstanceRequest{CPUCores: &cores}
 	_, err := c.ModifyInstance(context.Background(), "0", req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1005,30 +1004,6 @@ func TestListSnapshots_Empty(t *testing.T) {
 	}
 	if len(snaps) != 0 {
 		t.Errorf("expected empty list, got %d snapshots", len(snaps))
-	}
-}
-
-func TestModifyInstance_TemporarilyDisabled(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIError{StatusCode: 400, ErrorType: "temporarily_disabled", Message: "Modify is temporarily disabled"})
-	})
-
-	srv, c := newTestServer(mux)
-	defer srv.Close()
-
-	cores := 8
-	_, err := c.ModifyInstance(context.Background(), "0", ModifyInstanceRequest{CPUCores: &cores})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) {
-		t.Fatalf("expected *APIError, got %T", err)
-	}
-	if apiErr.ErrorType != "temporarily_disabled" {
-		t.Errorf("error_type = %q, want temporarily_disabled", apiErr.ErrorType)
 	}
 }
 

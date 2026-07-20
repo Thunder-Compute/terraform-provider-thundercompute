@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,8 +22,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"terraform-provider-thundercompute/internal/client"
@@ -43,15 +40,13 @@ type InstanceResource struct {
 
 type InstanceResourceModel struct {
 	// User-configurable
-	GPUType             types.String `tfsdk:"gpu_type"`
-	Template            types.String `tfsdk:"template"`
-	Mode                types.String `tfsdk:"mode"`
-	CPUCores            types.Int64  `tfsdk:"cpu_cores"`
-	DiskSizeGB          types.Int64  `tfsdk:"disk_size_gb"`
-	NumGPUs             types.Int64  `tfsdk:"num_gpus"`
-	PublicKey           types.String `tfsdk:"public_key"`
-	HTTPPorts           types.Set    `tfsdk:"http_ports"`
-	AllowSnapshotModify types.Bool   `tfsdk:"allow_snapshot_modify"`
+	GPUType    types.String `tfsdk:"gpu_type"`
+	Template   types.String `tfsdk:"template"`
+	CPUCores   types.Int64  `tfsdk:"cpu_cores"`
+	DiskSizeGB types.Int64  `tfsdk:"disk_size_gb"`
+	NumGPUs    types.Int64  `tfsdk:"num_gpus"`
+	PublicKey  types.String `tfsdk:"public_key"`
+	HTTPPorts  types.Set    `tfsdk:"http_ports"`
 
 	// Computed
 	ID            types.String   `tfsdk:"id"`
@@ -95,15 +90,6 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 				},
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
-				},
-			},
-			"mode": schema.StringAttribute{
-				Optional:           true,
-				Computed:           true,
-				DeprecationMessage: "mode no longer exists in the Thunder Compute API and is retained only for v0.1.0 state compatibility. Remove it from configuration.",
-				Description:        "Deprecated compatibility-only field for v0.1.0 state. Instance mode no longer exists and this value is not sent to the API.",
-				Validators: []validator.String{
-					stringvalidator.OneOf("prototyping", "production"),
 				},
 			},
 			"cpu_cores": schema.Int64Attribute{
@@ -151,13 +137,6 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 						int64validator.NoneOf(22),
 					),
 				},
-			},
-			"allow_snapshot_modify": schema.BoolAttribute{
-				Optional:           true,
-				Computed:           true,
-				Default:            booldefault.StaticBool(false),
-				DeprecationMessage: "allow_snapshot_modify is retained for v0.1.0 state compatibility and no longer enables automatic replacement.",
-				Description:        "Deprecated compatibility setting. Legacy instances must be snapshotted and recreated manually.",
 			},
 			"id": schema.StringAttribute{
 				Computed:    true,
@@ -240,105 +219,103 @@ func (r *InstanceResource) Schema(ctx context.Context, _ resource.SchemaRequest,
 	}
 }
 
-func (r *InstanceResource) UpgradeState(ctx context.Context) map[int64]resource.StateUpgrader {
-	var schemaResp resource.SchemaResponse
-	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
-	schemaType := schemaResp.Schema.Type().TerraformType(ctx)
+// instanceResourceModelV0 and instanceResourceSchemaV0 describe the serialized
+// state written by provider v0.1.0. They are intentionally isolated from the
+// current resource model so removed configuration concepts cannot leak back
+// into normal planning or lifecycle behavior.
+type instanceResourceModelV0 struct {
+	GPUType             types.String   `tfsdk:"gpu_type"`
+	Template            types.String   `tfsdk:"template"`
+	Mode                types.String   `tfsdk:"mode"`
+	CPUCores            types.Int64    `tfsdk:"cpu_cores"`
+	DiskSizeGB          types.Int64    `tfsdk:"disk_size_gb"`
+	NumGPUs             types.Int64    `tfsdk:"num_gpus"`
+	PublicKey           types.String   `tfsdk:"public_key"`
+	HTTPPorts           types.Set      `tfsdk:"http_ports"`
+	AllowSnapshotModify types.Bool     `tfsdk:"allow_snapshot_modify"`
+	ID                  types.String   `tfsdk:"id"`
+	Identifier          types.Int64    `tfsdk:"identifier"`
+	GeneratedKey        types.String   `tfsdk:"generated_key"`
+	Status              types.String   `tfsdk:"status"`
+	IP                  types.String   `tfsdk:"ip"`
+	Port                types.Int64    `tfsdk:"port"`
+	Name                types.String   `tfsdk:"name"`
+	Memory              types.String   `tfsdk:"memory"`
+	CreatedAt           types.String   `tfsdk:"created_at"`
+	SSHPublicKeys       types.List     `tfsdk:"ssh_public_keys"`
+	Timeouts            timeouts.Value `tfsdk:"timeouts"`
+}
 
+func instanceResourceSchemaV0(ctx context.Context) schema.Schema {
+	return schema.Schema{Attributes: map[string]schema.Attribute{
+		"gpu_type":              schema.StringAttribute{Required: true},
+		"template":              schema.StringAttribute{Required: true},
+		"mode":                  schema.StringAttribute{Required: true},
+		"cpu_cores":             schema.Int64Attribute{Required: true},
+		"disk_size_gb":          schema.Int64Attribute{Required: true},
+		"num_gpus":              schema.Int64Attribute{Required: true},
+		"public_key":            schema.StringAttribute{Optional: true},
+		"http_ports":            schema.SetAttribute{Optional: true, Computed: true, ElementType: types.Int64Type},
+		"allow_snapshot_modify": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false)},
+		"id":                    schema.StringAttribute{Computed: true},
+		"identifier":            schema.Int64Attribute{Computed: true},
+		"generated_key":         schema.StringAttribute{Computed: true, Sensitive: true},
+		"status":                schema.StringAttribute{Computed: true},
+		"ip":                    schema.StringAttribute{Computed: true},
+		"port":                  schema.Int64Attribute{Computed: true},
+		"name":                  schema.StringAttribute{Computed: true},
+		"memory":                schema.StringAttribute{Computed: true},
+		"created_at":            schema.StringAttribute{Computed: true},
+		"ssh_public_keys":       schema.ListAttribute{Computed: true, ElementType: types.StringType},
+		"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+			Create: true,
+			Update: true,
+			Delete: true,
+		}),
+	}}
+}
+
+func (r *InstanceResource) UpgradeState(ctx context.Context) map[int64]resource.StateUpgrader {
+	priorSchema := instanceResourceSchemaV0(ctx)
 	return map[int64]resource.StateUpgrader{
 		0: {
-			StateUpgrader: func(_ context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
-				if req.RawState == nil {
+			PriorSchema: &priorSchema,
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				if req.State == nil {
 					resp.Diagnostics.AddError("Unable to upgrade instance state", "The v0 instance state was empty.")
 					return
 				}
 
-				rawValue, err := req.RawState.Unmarshal(schemaType)
-				if err != nil {
-					resp.Diagnostics.AddError("Unable to upgrade instance state", err.Error())
-					return
-				}
-				var values map[string]tftypes.Value
-				if err := rawValue.As(&values); err != nil {
-					resp.Diagnostics.AddError("Unable to upgrade instance state", err.Error())
+				var prior instanceResourceModelV0
+				resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+				if resp.Diagnostics.HasError() {
 					return
 				}
 
-				var mode string
-				if modeValue, ok := values["mode"]; ok && modeValue.IsKnown() && !modeValue.IsNull() {
-					if err := modeValue.As(&mode); err != nil {
-						resp.Diagnostics.AddError("Unable to upgrade instance state", err.Error())
-						return
-					}
+				upgraded := InstanceResourceModel{
+					GPUType:       prior.GPUType,
+					Template:      prior.Template,
+					CPUCores:      prior.CPUCores,
+					DiskSizeGB:    prior.DiskSizeGB,
+					NumGPUs:       prior.NumGPUs,
+					PublicKey:     prior.PublicKey,
+					HTTPPorts:     prior.HTTPPorts,
+					ID:            prior.ID,
+					Identifier:    prior.Identifier,
+					GeneratedKey:  prior.GeneratedKey,
+					Status:        prior.Status,
+					IP:            prior.IP,
+					Port:          prior.Port,
+					Name:          prior.Name,
+					Memory:        prior.Memory,
+					CreatedAt:     prior.CreatedAt,
+					SSHPublicKeys: prior.SSHPublicKeys,
+					Timeouts:      prior.Timeouts,
 				}
-				if mode == "" {
-					var numGPUsValue big.Float
-					if err := values["num_gpus"].As(&numGPUsValue); err != nil {
-						resp.Diagnostics.AddError("Unable to upgrade instance state", err.Error())
-						return
-					}
-					numGPUs, _ := numGPUsValue.Int64()
-					var ok bool
-					mode, ok = LegacyModeCompatibilityForGPUCount(numGPUs)
-					if !ok {
-						resp.Diagnostics.AddError("Unable to upgrade instance state", fmt.Sprintf("num_gpus must be one of 1, 2, 4, or 8; got %d", numGPUs))
-						return
-					}
-				}
-				values["mode"] = tftypes.NewValue(tftypes.String, mode)
-
-				dynamicValue, err := tfprotov6.NewDynamicValue(schemaType, tftypes.NewValue(schemaType, values))
-				if err != nil {
-					resp.Diagnostics.AddError("Unable to upgrade instance state", err.Error())
-					return
-				}
-				resp.DynamicValue = &dynamicValue
+				resp.Diagnostics.Append(resp.State.Set(ctx, &upgraded)...)
 			},
 		},
 	}
-}
-
-// LegacyModeCompatibilityForGPUCount maps a GPU count to the compatibility
-// value the removed v0.1.0 mode field used to imply. Shared with data sources
-// that still surface the deprecated mode attribute.
-func LegacyModeCompatibilityForGPUCount(numGPUs int64) (string, bool) {
-	switch numGPUs {
-	case 1, 2:
-		return "prototyping", true
-	case 4, 8:
-		return "production", true
-	default:
-		return "", false
-	}
-}
-
-func resolveLegacyModeState(configuredMode string, configuredModeSet bool, stateMode string, planGPUs, stateGPUs int64, hasState bool) (string, string, error) {
-	compatibilityMode, ok := LegacyModeCompatibilityForGPUCount(planGPUs)
-	if !ok {
-		return "", "", fmt.Errorf("num_gpus must be one of 1, 2, 4, or 8; got %d", planGPUs)
-	}
-
-	if !configuredModeSet {
-		if hasState && planGPUs == stateGPUs && stateMode != "" {
-			if stateMode != compatibilityMode {
-				return stateMode, "The existing Terraform state contains a legacy mode value from v0.1.0. The provider will preserve this compatibility-only value to avoid changing the instance. Remove mode from configuration; recreate the instance manually only if you need to replace it.", nil
-			}
-			return stateMode, "", nil
-		}
-		return compatibilityMode, "", nil
-	}
-
-	if configuredMode == compatibilityMode {
-		if hasState && planGPUs == stateGPUs && stateMode != "" && stateMode != compatibilityMode {
-			return "", "", fmt.Errorf("mode %q no longer configures Thunder Compute instances, and this existing resource has a different v0.1.0 compatibility value %q; remove mode from configuration to preserve the instance or recreate it manually", configuredMode, stateMode)
-		}
-		return configuredMode, "", nil
-	}
-	if hasState && planGPUs == stateGPUs && configuredMode == stateMode {
-		return configuredMode, "Mode no longer configures Thunder Compute instances. Terraform will retain this v0.1.0 compatibility value without replacing or modifying the instance. Remove mode from configuration for future compatibility.", nil
-	}
-
-	return "", "", fmt.Errorf("mode %q no longer configures Thunder Compute instances; remove mode from configuration", configuredMode)
 }
 
 func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
@@ -347,11 +324,7 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 		return
 	}
 
-	var configuredMode, plannedMode, stateMode types.String
-	var plannedGPUs, stateGPUs, plannedDisk, stateDisk types.Int64
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("mode"), &configuredMode)...)
-	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("mode"), &plannedMode)...)
-	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("num_gpus"), &plannedGPUs)...)
+	var plannedDisk, stateDisk types.Int64
 	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("disk_size_gb"), &plannedDisk)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -359,8 +332,6 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 
 	hasState := req.State.Raw.IsKnown() && !req.State.Raw.IsNull()
 	if hasState {
-		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("mode"), &stateMode)...)
-		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("num_gpus"), &stateGPUs)...)
 		resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("disk_size_gb"), &stateDisk)...)
 		if resp.Diagnostics.HasError() {
 			return
@@ -375,29 +346,6 @@ func (r *InstanceResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 			fmt.Sprintf("Thunder Compute disks can only grow. disk_size_gb is changing from %d to %d; restore the previous size or recreate the instance manually.", stateDisk.ValueInt64(), plannedDisk.ValueInt64()),
 		)
 		return
-	}
-
-	if plannedGPUs.IsNull() || plannedGPUs.IsUnknown() {
-		return
-	}
-	configuredModeSet := !configuredMode.IsNull() && !configuredMode.IsUnknown()
-	mode, warning, err := resolveLegacyModeState(
-		configuredMode.ValueString(),
-		configuredModeSet,
-		stateMode.ValueString(),
-		plannedGPUs.ValueInt64(),
-		stateGPUs.ValueInt64(),
-		hasState,
-	)
-	if err != nil {
-		resp.Diagnostics.AddAttributeError(path.Root("mode"), "Obsolete mode configuration", err.Error())
-		return
-	}
-	if warning != "" {
-		resp.Diagnostics.AddAttributeWarning(path.Root("mode"), "Preserving legacy instance mode", warning)
-	}
-	if plannedMode.IsUnknown() || plannedMode.IsNull() || plannedMode.ValueString() != mode {
-		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("mode"), types.StringValue(mode))...)
 	}
 }
 
@@ -626,7 +574,7 @@ func (r *InstanceResource) Update(ctx context.Context, req resource.UpdateReques
 		if err != nil {
 			if requiresManualSnapshotRecreate(err) {
 				resp.Diagnostics.AddError("Instance must be recreated manually",
-					fmt.Sprintf("Thunder Compute cannot modify instance %s in place (%s). Create a snapshot and recreate the instance manually with the desired configuration. Terraform did not delete or replace the instance; allow_snapshot_modify no longer enables automatic replacement.", uuid, err.Error()))
+					fmt.Sprintf("Thunder Compute cannot modify instance %s in place (%s). Create a snapshot and recreate the instance manually with the desired configuration. Terraform did not delete or replace the instance.", uuid, err.Error()))
 				return
 			}
 			resp.Diagnostics.AddError("Error updating Thunder Compute instance",
@@ -658,7 +606,7 @@ func (r *InstanceResource) Update(ctx context.Context, req resource.UpdateReques
 			if err != nil {
 				if requiresManualSnapshotRecreate(err) {
 					resp.Diagnostics.AddError("Instance ports require manual recreation",
-						fmt.Sprintf("Thunder Compute cannot change HTTP ports on legacy instance %s (%s). Snapshot and recreate the instance manually with the desired ports. Terraform did not delete or replace the instance.", uuid, err.Error()))
+						fmt.Sprintf("Thunder Compute cannot change HTTP ports on instance %s (%s). Snapshot and recreate the instance manually with the desired ports. Terraform did not delete or replace the instance.", uuid, err.Error()))
 					return
 				}
 				resp.Diagnostics.AddError("Error updating Thunder Compute instance ports",
@@ -713,22 +661,6 @@ func (r *InstanceResource) Delete(ctx context.Context, req resource.DeleteReques
 
 func (r *InstanceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-	resp.Diagnostics.AddWarning(
-		"Instance mode has been removed",
-		"The Thunder Compute API no longer has an instance mode. During refresh Terraform will populate a compatibility-only value for v0.1.0 state; do not add mode to configuration.",
-	)
-}
-
-// isLegacyModifyContractError returns true when the modify API rejected the
-// request with its legacy snapshot-and-recreate contract. The API emitted
-// temporarily_disabled only while modify was hard-disabled, and that response
-// instructed callers to snapshot and recreate the instance, not to retry.
-func isLegacyModifyContractError(err error) bool {
-	var apiErr *client.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == 400 && apiErr.ErrorType == "temporarily_disabled"
-	}
-	return false
 }
 
 func requiresManualSnapshotRecreate(err error) bool {
@@ -736,22 +668,10 @@ func requiresManualSnapshotRecreate(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return false
 	}
-	return isLegacyModifyContractError(err) || apiErr.ErrorType == "unsupported_instance_version"
+	return apiErr.ErrorType == "unsupported_instance_version"
 }
 
 func (r *InstanceResource) validateInstanceConfiguration(ctx context.Context, model, previous *InstanceResourceModel) error {
-	// The public specs endpoint omits the internal mode. When an existing
-	// off-route instance keeps the same GPU count, the modify endpoint preserves
-	// its legacy mode, which cannot be represented by /v2/specs. Defer validation
-	// to that authoritative endpoint instead of applying the routed mode's spec.
-	if previous != nil && model.NumGPUs.ValueInt64() == previous.NumGPUs.ValueInt64() {
-		routedMode, ok := LegacyModeCompatibilityForGPUCount(previous.NumGPUs.ValueInt64())
-		if ok && !previous.Mode.IsNull() && !previous.Mode.IsUnknown() && previous.Mode.ValueString() != "" &&
-			!strings.EqualFold(previous.Mode.ValueString(), routedMode) {
-			return nil
-		}
-	}
-
 	specs, err := r.client.GetGPUSpecs(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load the current GPU specification contract: %w", err)
@@ -952,15 +872,6 @@ func (r *InstanceResource) populateInstanceModel(ctx context.Context, index stri
 		model.GPUType = types.StringValue(normalizeGPUType(item.GPUType))
 	} else if normalizeGPUType(model.GPUType.ValueString()) != normalizeGPUType(item.GPUType) {
 		model.GPUType = types.StringValue(normalizeGPUType(item.GPUType))
-	}
-	if model.Mode.IsNull() || model.Mode.IsUnknown() || model.Mode.ValueString() == "" {
-		mode, ok := LegacyModeCompatibilityForGPUCount(parseIntOrZero(ctx, item.NumGPUs))
-		if !ok {
-			diags.AddError("Unable to populate legacy mode compatibility", fmt.Sprintf("Instance %s returned num_gpus %q, which cannot be represented in v0.1.0 compatibility state.", item.UUID, item.NumGPUs))
-			return
-		}
-		diags.AddWarning("Instance mode has been removed", "The Thunder Compute API no longer has an instance mode. Terraform populated a compatibility-only value for v0.1.0 state; do not add mode to configuration.")
-		model.Mode = types.StringValue(mode)
 	}
 	// Preserve the configured template value because it is replace-only and the
 	// list API may report an internal image/snapshot representation.

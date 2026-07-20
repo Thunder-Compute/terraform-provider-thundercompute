@@ -34,7 +34,6 @@ Read-Only:
 
 - `display_name` (String) Human-readable GPU name.
 - `gpu_count` (Number) Number of GPUs in this configuration.
-- `mode` (String, Deprecated) Deprecated compatibility-only field. Instance mode no longer exists in the Thunder Compute API; use gpu_count and the canonical spec key instead.
 - `ram_cap_gib` (Number) Maximum total system RAM in GiB when the configuration uses capped affine RAM sizing; zero means uncapped proportional sizing.
 - `ram_per_vcpu_gib` (Number) RAM per vCPU in GiB.
 - `storage_max_gb` (Number) Maximum disk size in GB.

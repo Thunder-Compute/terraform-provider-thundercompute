@@ -116,64 +116,6 @@ func TestAccInstanceResource_update(t *testing.T) {
 	})
 }
 
-// TestAccInstanceResource_legacyFieldsMigration covers the v0.1.0 upgrade
-// path: a config still carrying the deprecated mode and allow_snapshot_modify
-// fields applies cleanly, and dropping them afterwards must not replace the
-// instance.
-func TestAccInstanceResource_legacyFieldsMigration(t *testing.T) {
-	var instanceID string
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories(),
-		CheckDestroy:             checkInstanceDestroyed,
-		Steps: []resource.TestStep{
-			{
-				Config: testAccInstanceConfig_legacyFields(),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "mode", "prototyping"),
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "allow_snapshot_modify", "true"),
-					testAccCaptureInstanceID("thundercompute_instance.test", &instanceID),
-				),
-			},
-			{
-				Config: testAccInstanceConfig_basic(),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "mode", "prototyping"),
-					resource.TestCheckResourceAttr("thundercompute_instance.test", "allow_snapshot_modify", "false"),
-					testAccCheckSameInstanceID("thundercompute_instance.test", &instanceID),
-				),
-			},
-		},
-	})
-}
-
-func testAccCaptureInstanceID(resourceName string, id *string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return fmt.Errorf("resource %s not found", resourceName)
-		}
-		*id = rs.Primary.Attributes["id"]
-		if *id == "" {
-			return fmt.Errorf("resource %s has no id", resourceName)
-		}
-		return nil
-	}
-}
-
-func testAccCheckSameInstanceID(resourceName string, id *string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		rs, ok := s.RootModule().Resources[resourceName]
-		if !ok {
-			return fmt.Errorf("resource %s not found", resourceName)
-		}
-		if got := rs.Primary.Attributes["id"]; got != *id {
-			return fmt.Errorf("instance was replaced: id changed from %s to %s", *id, got)
-		}
-		return nil
-	}
-}
-
 func TestAccInstanceResource_recreate(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -208,7 +150,7 @@ func TestAccInstanceResource_import(t *testing.T) {
 				// gpu_type preserves the configured spelling in state, but an
 				// import has no configuration and can only produce the
 				// canonical lowercase identifier.
-				ImportStateVerifyIgnore: []string{"public_key", "generated_key", "allow_snapshot_modify", "timeouts", "gpu_type"},
+				ImportStateVerifyIgnore: []string{"public_key", "generated_key", "timeouts", "gpu_type"},
 			},
 		},
 	})
@@ -257,9 +199,9 @@ func TestInstanceResourcePlanValidation(t *testing.T) {
 		attributes  string
 		expectError string
 	}{
-		{name: "mode omitted", attributes: ""},
-		{name: "matching mode", attributes: `mode = "prototyping"`},
-		{name: "obsolete mode", attributes: `mode = "production"`, expectError: "Obsolete mode configuration"},
+		{name: "current arguments", attributes: ""},
+		{name: "removed mode argument", attributes: `mode = "prototyping"`, expectError: "Unsupported argument"},
+		{name: "removed snapshot modify argument", attributes: `allow_snapshot_modify = true`, expectError: "Unsupported argument"},
 		{name: "invalid GPU count", numGPUs: 3, expectError: "1.*2.*4.*8"},
 		{name: "SSH port rejected", attributes: "http_ports = [22]", expectError: "22"},
 		{name: "out of range port rejected", attributes: "http_ports = [65536]", expectError: "65535"},
@@ -356,24 +298,6 @@ resource "thundercompute_instance" "test" {
   cpu_cores    = 6
   disk_size_gb = 100
   num_gpus     = 1
-}
-`
-}
-
-// testAccInstanceConfig_legacyFields exercises the deprecated v0.1.0 fields,
-// which must still apply cleanly without being sent to the API.
-func testAccInstanceConfig_legacyFields() string {
-	return `
-provider "thundercompute" {}
-
-resource "thundercompute_instance" "test" {
-  gpu_type              = "A6000"
-  mode                  = "prototyping"
-  template              = "base"
-  cpu_cores             = 6
-  disk_size_gb          = 100
-  num_gpus              = 1
-  allow_snapshot_modify = true
 }
 `
 }

@@ -86,15 +86,13 @@ func TestInstanceCreateRetainsUUIDAcrossVisibilityLagAndPatchesPorts(t *testing.
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
-		"gpu_type":              "A6000",
-		"template":              "base",
-		"mode":                  "prototyping",
-		"cpu_cores":             int64(4),
-		"disk_size_gb":          int64(100),
-		"num_gpus":              int64(1),
-		"public_key":            publicKeyWithNewline,
-		"http_ports":            []int64{8080},
-		"allow_snapshot_modify": false,
+		"gpu_type":     "A6000",
+		"template":     "base",
+		"cpu_cores":    int64(4),
+		"disk_size_gb": int64(100),
+		"num_gpus":     int64(1),
+		"public_key":   publicKeyWithNewline,
+		"http_ports":   []int64{8080},
 	})
 	req := resource.CreateRequest{
 		Config: tfsdk.Config{Raw: raw, Schema: s},
@@ -165,14 +163,12 @@ func TestInstanceCreatePollsThroughTransientUnknownStatus(t *testing.T) {
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
-		"gpu_type":              "A6000",
-		"template":              "base",
-		"mode":                  "prototyping",
-		"cpu_cores":             int64(4),
-		"disk_size_gb":          int64(100),
-		"num_gpus":              int64(1),
-		"http_ports":            nil,
-		"allow_snapshot_modify": false,
+		"gpu_type":     "A6000",
+		"template":     "base",
+		"cpu_cores":    int64(4),
+		"disk_size_gb": int64(100),
+		"num_gpus":     int64(1),
+		"http_ports":   nil,
 	})
 	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
 	r.Create(ctx, resource.CreateRequest{
@@ -222,9 +218,9 @@ func TestInstanceCreatePartialStateContainsNoUnknownValues(t *testing.T) {
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	configValues := map[string]interface{}{
-		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"gpu_type": "A6000", "template": "base",
 		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
-		"http_ports": nil, "allow_snapshot_modify": false,
+		"http_ports": nil,
 	}
 	planValues := cloneInterfaceMap(configValues)
 	for _, name := range []string{
@@ -334,9 +330,9 @@ func TestInstanceCreatePortSemantics(t *testing.T) {
 			r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 			s := schemaResp.Schema
 			raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
-				"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+				"gpu_type": "A6000", "template": "base",
 				"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
-				"http_ports": tt.configuredPorts, "allow_snapshot_modify": false,
+				"http_ports": tt.configuredPorts,
 			})
 			resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
 			r.Create(ctx, resource.CreateRequest{
@@ -426,8 +422,8 @@ func TestInstanceUpdateSeparatesComputeAndPortOperations(t *testing.T) {
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	common := map[string]interface{}{
-		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
-		"disk_size_gb": int64(100), "num_gpus": int64(1), "allow_snapshot_modify": false,
+		"gpu_type": "A6000", "template": "base",
+		"disk_size_gb": int64(100), "num_gpus": int64(1),
 	}
 	stateValues := cloneInterfaceMap(common)
 	stateValues["cpu_cores"] = int64(4)
@@ -492,9 +488,9 @@ func TestInstanceUpdateConfirmsTransientListMiss(t *testing.T) {
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	values := map[string]interface{}{
-		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"gpu_type": "A6000", "template": "base",
 		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
-		"http_ports": nil, "allow_snapshot_modify": false, "id": "instance-uuid",
+		"http_ports": nil, "id": "instance-uuid",
 		"generated_key": "private-key-material",
 	}
 	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), values)
@@ -550,9 +546,9 @@ func TestInstanceDeleteConfirmsTransientListMiss(t *testing.T) {
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
-		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"gpu_type": "A6000", "template": "base",
 		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
-		"http_ports": nil, "allow_snapshot_modify": false, "id": "instance-uuid",
+		"http_ports": nil, "id": "instance-uuid",
 	})
 	var resp resource.DeleteResponse
 	r.Delete(ctx, resource.DeleteRequest{State: tfsdk.State{Raw: raw, Schema: s}}, &resp)
@@ -595,9 +591,9 @@ func TestInstanceUpdateUnsupportedVersionFailsClosed(t *testing.T) {
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	stateValues := map[string]interface{}{
-		"gpu_type": "A6000", "template": "base", "mode": "prototyping",
+		"gpu_type": "A6000", "template": "base",
 		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
-		"http_ports": []int64{}, "allow_snapshot_modify": true, "id": "instance-uuid",
+		"http_ports": []int64{}, "id": "instance-uuid",
 	}
 	planValues := cloneInterfaceMap(stateValues)
 	planValues["cpu_cores"] = int64(8)
@@ -649,9 +645,9 @@ func TestInstanceCreateRejectsDiskBelowSnapshotMinimumBeforeMutation(t *testing.
 	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
 	s := schemaResp.Schema
 	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
-		"gpu_type": "A6000", "template": "snapshot-name", "mode": "prototyping",
+		"gpu_type": "A6000", "template": "snapshot-name",
 		"cpu_cores": int64(4), "disk_size_gb": int64(100), "num_gpus": int64(1),
-		"http_ports": nil, "allow_snapshot_modify": false,
+		"http_ports": nil,
 	})
 	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
 	r.Create(ctx, resource.CreateRequest{
@@ -705,53 +701,6 @@ func TestValidateInstanceConfigurationUsesPublicSpecs(t *testing.T) {
 				t.Errorf("validateInstanceConfiguration() error = %v, wantError %t", err, tt.wantError)
 			}
 		})
-	}
-}
-
-func TestValidateInstanceConfigurationDefersLegacyModeUpdatesToAPI(t *testing.T) {
-	ctx := context.Background()
-	specCalls := 0
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v2/specs", func(w http.ResponseWriter, _ *http.Request) {
-		specCalls++
-		writeResourceJSON(t, w, gpuSpecsFixture())
-	})
-	server := httptest.NewServer(mux)
-	defer server.Close()
-	r := &InstanceResource{client: client.NewClient(server.URL, "test-token", "test")}
-
-	tests := []struct {
-		name    string
-		mode    string
-		numGPUs int64
-	}{
-		{name: "one GPU production", mode: "production", numGPUs: 1},
-		{name: "four GPU prototyping", mode: "prototyping", numGPUs: 4},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			previous := &InstanceResourceModel{
-				Mode:       types.StringValue(tt.mode),
-				GPUType:    types.StringValue("A6000"),
-				NumGPUs:    types.Int64Value(tt.numGPUs),
-				CPUCores:   types.Int64Value(4),
-				DiskSizeGB: types.Int64Value(100),
-			}
-			model := &InstanceResourceModel{
-				Mode:       types.StringValue(tt.mode),
-				GPUType:    types.StringValue("A6000"),
-				NumGPUs:    types.Int64Value(tt.numGPUs),
-				CPUCores:   types.Int64Value(16),
-				DiskSizeGB: types.Int64Value(100),
-				Template:   types.StringValue("base"),
-			}
-			if err := r.validateInstanceConfiguration(ctx, model, previous); err != nil {
-				t.Fatalf("validateInstanceConfiguration() rejected a legacy mode update: %v", err)
-			}
-		})
-	}
-	if specCalls != 0 {
-		t.Errorf("public specs calls = %d, want 0 for legacy off-route updates", specCalls)
 	}
 }
 

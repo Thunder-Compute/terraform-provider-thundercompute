@@ -12,7 +12,6 @@ type CreateInstanceRequest struct {
 	CPUCores   int    `json:"cpu_cores"`
 	DiskSizeGB int    `json:"disk_size_gb"`
 	GPUType    string `json:"gpu_type"`
-	Mode       string `json:"-"`
 	NumGPUs    int    `json:"num_gpus"`
 	Template   string `json:"template"`
 	PublicKey  string `json:"public_key,omitempty"`
@@ -34,7 +33,6 @@ type InstanceListItem struct {
 	Memory           string           `json:"memory"`
 	Storage          int              `json:"storage"`
 	GPUType          string           `json:"gpuType"`
-	Mode             string           `json:"mode"`
 	Template         string           `json:"template"`
 	IP               string           `json:"ip"`
 	Port             int              `json:"port"`
@@ -60,7 +58,6 @@ type ModifyInstanceRequest struct {
 	CPUCores    *int    `json:"cpu_cores,omitempty"`
 	DiskSizeGB  *int    `json:"disk_size_gb,omitempty"`
 	GPUType     *string `json:"gpu_type,omitempty"`
-	Mode        *string `json:"-"`
 	NumGPUs     *int    `json:"num_gpus,omitempty"`
 	AddPorts    []int   `json:"-"`
 	RemovePorts []int   `json:"-"`
@@ -70,7 +67,6 @@ type ModifyInstanceResponse struct {
 	Identifier   string  `json:"identifier"`
 	InstanceName string  `json:"instance_name"`
 	GPUType      *string `json:"gpu_type,omitempty"`
-	Mode         *string `json:"mode,omitempty"`
 	NumGPUs      *int    `json:"num_gpus,omitempty"`
 	HTTPPorts    []int   `json:"http_ports,omitempty"`
 }

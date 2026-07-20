@@ -37,7 +37,6 @@ Read-Only:
 - `gpu_type` (String) GPU type.
 - `ip` (String) Instance IP address.
 - `memory` (String) Allocated memory.
-- `mode` (String, Deprecated) Deprecated compatibility-only field. Instance mode no longer exists in the Thunder Compute API; do not use this value.
 - `name` (String) Instance display name.
 - `num_gpus` (Number) Number of GPUs.
 - `port` (Number) SSH port.

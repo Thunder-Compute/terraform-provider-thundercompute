@@ -30,8 +30,6 @@ go_library(
         "@com_github_hashicorp_terraform_plugin_framework_validators//int64validator",
         "@com_github_hashicorp_terraform_plugin_framework_validators//setvalidator",
         "@com_github_hashicorp_terraform_plugin_framework_validators//stringvalidator",
-        "@com_github_hashicorp_terraform_plugin_go//tfprotov6",
-        "@com_github_hashicorp_terraform_plugin_go//tftypes",
         "@com_github_hashicorp_terraform_plugin_log//tflog",
     ],
 )

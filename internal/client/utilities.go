@@ -10,7 +10,6 @@ import (
 type GPUSpecConfig struct {
 	DisplayName   string       `json:"displayName"`
 	GPUCount      int          `json:"gpuCount"`
-	Mode          string       `json:"mode"`
 	RAMCapGiB     int          `json:"ramCapGiB,omitempty"`
 	RAMPerVCPUGiB int          `json:"ramPerVCPUGiB"`
 	StorageGB     StorageRange `json:"storageGB"`

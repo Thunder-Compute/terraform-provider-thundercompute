@@ -12,14 +12,17 @@ FEATURES:
 BUG FIXES:
 
 * Structured API errors are preserved after safe GET and PATCH retries are exhausted.
-* Legacy snapshot imports can hydrate `instance_id` from configuration without replacing the imported snapshot.
 * In-place instance updates preserve the instance UUID so dependent snapshots and SSH keys are not replaced.
 * `public_key` accepts newline-terminated OpenSSH public key file content (for example from `file(...)`) while rejecting embedded multiline data.
 * Instance create and modify waits no longer treat the transient `UNKNOWN` status as terminal; the API reports `UNKNOWN` while it cannot determine instance state (for example during early provisioning), so polling continues until the operation timeout.
 
-DEPRECATIONS:
+BREAKING CHANGES:
 
-* `mode` and `allow_snapshot_modify` remain in schema for v0.1.0 state compatibility but should be removed from configuration.
+* The `mode` and `allow_snapshot_modify` instance arguments have been removed. Existing v0.1 instance state upgrades automatically, but HCL must be updated with the provider constraint.
+* Instance and GPU-spec data sources no longer expose synthetic `mode` fields. Mode-suffixed discovery keys must be replaced with canonical keys such as `h100_x1`.
+* Snapshot imports require `snapshot_id,instance_uuid`; ID-only imports are no longer accepted.
+
+See the [v0.2 migration guide](MIGRATION_0.2.md) for the coordinated upgrade and snapshot re-import workflow.
 
 ## 0.1.0
 
