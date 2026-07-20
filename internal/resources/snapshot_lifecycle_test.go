@@ -224,6 +224,59 @@ func TestSnapshotCreatePersistsFailedSnapshotIdentity(t *testing.T) {
 	}
 }
 
+func TestSnapshotCreatePersistsReturnedIDWhenListNeverVisible(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	originalPollInterval := snapshotPollIntervalShared
+	snapshotPollIntervalShared = time.Millisecond
+	defer func() { snapshotPollIntervalShared = originalPollInterval }()
+
+	createCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/snapshots/create", func(w http.ResponseWriter, _ *http.Request) {
+		createCalls++
+		writeResourceJSON(t, w, map[string]interface{}{"id": "returned-id", "message": "Snapshot created"})
+	})
+	// The snapshot list stays empty forever: it satisfies the pre-create
+	// uniqueness check but never surfaces the created snapshot, modeling stale
+	// or failing list consistency after a successful create.
+	mux.HandleFunc("/v1/snapshots/list", func(w http.ResponseWriter, _ *http.Request) {
+		writeResourceJSON(t, w, []interface{}{})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	r := &SnapshotResource{client: client.NewClient(server.URL, "test-token", "test")}
+	var schemaResp resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResp)
+	s := schemaResp.Schema
+	raw := instancePlanningValue(ctx, t, s.Type().TerraformType(ctx), map[string]interface{}{
+		"instance_id": "instance-uuid", "name": "snapshot-name",
+	})
+	resp := resource.CreateResponse{State: tfsdk.State{Schema: s}}
+	r.Create(ctx, resource.CreateRequest{
+		Config: tfsdk.Config{Raw: raw, Schema: s},
+		Plan:   tfsdk.Plan{Raw: raw, Schema: s},
+	}, &resp)
+
+	// Readiness cannot be confirmed from an unavailable list, so Create fails...
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("Create() returned no error when the snapshot list never became visible")
+	}
+	if createCalls != 1 {
+		t.Errorf("snapshot create calls = %d, want 1", createCalls)
+	}
+	// ...but the server-returned ID must be persisted so the snapshot is
+	// recoverable (deletable/reconcilable) instead of orphaned.
+	var gotID types.String
+	if diags := resp.State.GetAttribute(ctx, path.Root("id"), &gotID); diags.HasError() {
+		t.Fatalf("reading snapshot id: %v", diags)
+	}
+	if gotID.ValueString() != "returned-id" {
+		t.Errorf("snapshot id = %q, want returned-id (server-returned identity must survive a stale list)", gotID.ValueString())
+	}
+}
+
 func TestSnapshotImportRequiresCompoundID(t *testing.T) {
 	ctx := context.Background()
 	r := &SnapshotResource{}

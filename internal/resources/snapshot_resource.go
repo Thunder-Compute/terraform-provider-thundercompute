@@ -154,7 +154,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 		return
 	}
 
-	_, createErr := r.client.CreateSnapshot(ctx, client.CreateSnapshotRequest{
+	createResp, createErr := r.client.CreateSnapshot(ctx, client.CreateSnapshotRequest{
 		InstanceID: plan.InstanceID.ValueString(),
 		Name:       plan.Name.ValueString(),
 	})
@@ -166,6 +166,23 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	if createErr != nil {
 		resp.Diagnostics.AddWarning("Snapshot create response was ambiguous",
 			fmt.Sprintf("The create response for snapshot %q was interrupted (%s). Terraform is checking the snapshot list for the server-created identity before deciding whether creation failed.", plan.Name.ValueString(), createErr.Error()))
+	}
+
+	// On a clean create the API returns the snapshot's authoritative ID. Persist
+	// it immediately, before the enrichment poll, so a stale or failing snapshot
+	// list can never orphan the created snapshot: even if the poll below times
+	// out, state retains the identity needed to delete or reconcile it. The
+	// ambiguous path (createErr != nil) has no response body and still relies on
+	// name-based list recovery below.
+	if createErr == nil && createResp != nil && createResp.ID != "" {
+		plan.ID = types.StringValue(createResp.ID)
+		plan.Status = types.StringNull()
+		plan.CreatedAt = types.Int64Null()
+		plan.MinimumDiskSizeGB = types.Int64Null()
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
 	var snap *client.Snapshot
@@ -181,7 +198,7 @@ func (r *SnapshotResource) Create(ctx context.Context, req resource.CreateReques
 	}
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating Thunder Compute snapshot",
-			fmt.Sprintf("Snapshot %q identity could not be recovered: %s", plan.Name.ValueString(), err.Error()))
+			fmt.Sprintf("Snapshot %q identity could not be recovered from the snapshot list: %s", plan.Name.ValueString(), err.Error()))
 		return
 	}
 

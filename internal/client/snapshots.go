@@ -12,6 +12,7 @@ type CreateSnapshotRequest struct {
 }
 
 type CreateSnapshotResponse struct {
+	ID      string `json:"id"`
 	Message string `json:"message"`
 }
 
