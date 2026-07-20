@@ -55,12 +55,10 @@ type InstanceRestart struct {
 }
 
 type ModifyInstanceRequest struct {
-	CPUCores    *int    `json:"cpu_cores,omitempty"`
-	DiskSizeGB  *int    `json:"disk_size_gb,omitempty"`
-	GPUType     *string `json:"gpu_type,omitempty"`
-	NumGPUs     *int    `json:"num_gpus,omitempty"`
-	AddPorts    []int   `json:"-"`
-	RemovePorts []int   `json:"-"`
+	CPUCores   *int    `json:"cpu_cores,omitempty"`
+	DiskSizeGB *int    `json:"disk_size_gb,omitempty"`
+	GPUType    *string `json:"gpu_type,omitempty"`
+	NumGPUs    *int    `json:"num_gpus,omitempty"`
 }
 
 type ModifyInstanceResponse struct {
